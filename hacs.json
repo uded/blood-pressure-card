@@ -1,0 +1,6 @@
+{
+  "name": "Blood Pressure Card",
+  "filename": "blood-pressure-card.js",
+  "render_readme": true,
+  "homeassistant": "2024.1.0"
+}

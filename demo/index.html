@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>blood-pressure-card demo</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: Roboto, system-ui, sans-serif;
+        background: var(--primary-background-color);
+        color: var(--primary-text-color);
+        --primary-background-color: #111111;
+        --secondary-background-color: #2a2a2a;
+        --card-background-color: #1c1c1c;
+        --ha-card-background: #1c1c1c;
+        --primary-text-color: #e1e1e1;
+        --secondary-text-color: #9b9b9b;
+        --primary-color: #03a9f4;
+        --text-primary-color: #fff;
+        --divider-color: rgba(225, 225, 225, 0.12);
+      }
+      body.light {
+        --primary-background-color: #fafafa;
+        --secondary-background-color: #f0f0f0;
+        --card-background-color: #fff;
+        --ha-card-background: #fff;
+        --primary-text-color: #212121;
+        --secondary-text-color: #727272;
+        --divider-color: rgba(0, 0, 0, 0.12);
+      }
+      .wrap { max-width: 520px; margin: 0 auto; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap"><blood-pressure-card id="card"></blood-pressure-card></div>
+    <script type="module">
+      // Minimal stand-in for HA's <ha-card>.
+      customElements.define('ha-card', class extends HTMLElement {
+        connectedCallback() {
+          Object.assign(this.style, { background: 'var(--ha-card-background)', borderRadius: '12px' });
+        }
+      });
+      import '../blood-pressure-card.js';
+
+      const params = new URLSearchParams(location.search);
+      if (params.get('theme') === 'light') document.body.classList.add('light');
+
+      // Deterministic fake readings: 0-3 per day for the last 400 days.
+      let seed = 42;
+      const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+      const sys = [];
+      const dia = [];
+      const pulse = [];
+      const today = new Date();
+      for (let d = 400; d >= 0; d--) {
+        const n = rnd() < 0.45 ? 0 : 1 + Math.floor(rnd() * 3);
+        for (let k = 0; k < n; k++) {
+          const t = new Date(today.getFullYear(), today.getMonth(), today.getDate() - d, 7 + k * 6, Math.floor(rnd() * 50));
+          if (t > today) continue;
+          const trend = 12 * Math.sin(d / 40);
+          const s = Math.round(140 + trend + (rnd() - 0.5) * 30);
+          const di = Math.round(88 + trend / 2 + (rnd() - 0.5) * 18);
+          const ts = t.getTime() / 1000;
+          sys.push({ s: String(s), lu: ts });
+          dia.push({ s: String(di), lu: ts + 1 });
+          pulse.push({ s: String(Math.round(62 + rnd() * 25)), lu: ts + 1 });
+        }
+      }
+      const series = {
+        'sensor.withings_systolic_blood_pressure': sys,
+        'sensor.withings_diastolic_blood_pressure': dia,
+        'sensor.withings_heart_pulse': pulse,
+      };
+
+      const hass = {
+        language: params.get('lang') || 'en',
+        locale: { language: params.get('lang') || 'en' },
+        states: {
+          'sensor.withings_systolic_blood_pressure': { last_updated: 'x' },
+          'sensor.withings_diastolic_blood_pressure': { last_updated: 'x' },
+        },
+        async callWS(msg) {
+          const a = Date.parse(msg.start_time) / 1000;
+          const b = Date.parse(msg.end_time) / 1000;
+          const out = {};
+          for (const id of msg.entity_ids) {
+            const all = series[id] || [];
+            const inRange = all.filter((e) => e.lu >= a && e.lu < b);
+            const before = all.filter((e) => e.lu < a).pop();
+            out[id] = before && msg.include_start_time_state ? [{ s: before.s, lu: a }, ...inRange] : inRange;
+          }
+          return out;
+        },
+      };
+
+      const card = document.getElementById('card');
+      card.setConfig({
+        systolic: 'sensor.withings_systolic_blood_pressure',
+        diastolic: 'sensor.withings_diastolic_blood_pressure',
+        pulse: 'sensor.withings_heart_pulse',
+        default_view: params.get('view') || 'month',
+      });
+      card.hass = hass;
+    </script>
+  </body>
+</html>
