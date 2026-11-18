@@ -107,7 +107,7 @@ python3 -m http.server 8765    # then open http://localhost:8765/demo/
 node --test test/*.test.mjs
 ```
 
-To release, bump the version in `package.json` and `VERSION` in `blood-pressure-card.js` (the tests check they match), commit, then push a tag `vX.Y.Z`. The release workflow runs the tests, checks the tag against both versions and publishes a GitHub release with `blood-pressure-card.js` attached, which is what HACS installs. An existing release is never overwritten; to fix one, release a new patch version.
+To release, bump the version in `package.json` and `VERSION` in `blood-pressure-card.js` (the tests check they match), add a `## X.Y.Z` section to `CHANGELOG.md` written for the people installing the card, commit, then push a tag `vX.Y.Z`. The release workflow runs the tests, checks the tag against both versions and publishes a GitHub release with `blood-pressure-card.js` attached, which is what HACS installs, with the changelog section as its notes. An existing release is never overwritten; to fix one, release a new patch version.
 
 The demo page mocks `hass` with 400 days of generated readings. Query parameters: `view=week|month|year`, `theme=light`, `lang=pl`.
 

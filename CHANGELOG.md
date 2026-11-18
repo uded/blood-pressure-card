@@ -1,0 +1,38 @@
+# Changelog
+
+## 0.2.2
+
+### New
+
+- **Home or office thresholds.** Most of us measure at home, and home readings are judged against a lower limit: 135/85 instead of the 140/90 used at the doctor's office. Set **Category thresholds** to **Home** in the card editor (or `thresholds: home` in YAML) and the colours, categories and dashed lines use the home limit. Office stays the default. The card now says which one it uses, under the averages.
+
+### Fixed
+
+- **Wall tablets move on at midnight.** A dashboard left open used to keep showing yesterday's week or last month until the next measurement. It now switches to the new day, week, month or year on its own.
+- **No made-up readings after an outage.** If your blood pressure sensor was unavailable when a week or month started (a restart, a Withings reconnect), the card could count its return as a new measurement. It now checks what the last real value was.
+- **Days follow your Home Assistant time zone setting.** If your profile is set to use the server's time zone, readings are now grouped into days in that zone, the same as the rest of Home Assistant.
+
+## 0.2.1
+
+No changes to the card. This release re-publishes 0.2.0 so the card can be listed in the HACS default store.
+
+## 0.2.0
+
+### New
+
+- **Visual editor.** Configure the card from the dashboard editor: pick your sensors, the default view, language, chart height and more. Colours still need YAML.
+- **Suggested for your sensors.** When you add a card and pick a systolic or diastolic sensor, Home Assistant now offers Blood Pressure Card with the matching sensor and your pulse sensor already filled in. Needs a recent Home Assistant.
+- **Preview in the card picker**, using your own sensors.
+
+### Fixed
+
+- **The colour matches the number.** An average shown as "140" could be labelled "High normal" because the category was worked out before rounding. It now uses the number you see.
+- **Clear errors instead of an empty chart.** A typo in the card's YAML (say `pair_window: 2m`) now shows Home Assistant's error card with what is wrong, instead of "No readings".
+- **Missing sensor named.** If a sensor id is wrong, the card says which one instead of blaming recorder history.
+- **Readings just before midnight on the 1st** stay in the month (or week) they were taken in.
+- **Sensor glitches ignored.** Impossible values such as 0 or 65535 no longer stretch the chart.
+- **A missing pulse sensor** no longer hides the blood pressure chart.
+
+## 0.1.0
+
+First version: Withings-style range chart per day or month, week, month and year views, averages and highest/lowest readings, English and Polish.

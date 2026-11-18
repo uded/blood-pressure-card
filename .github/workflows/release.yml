@@ -46,8 +46,10 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+      - name: 📝 Release notes from CHANGELOG.md
+        run: node scripts/release-notes.mjs "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/notes.md"
       - name: 🚀 Create release with the card as asset
         env:
           GH_TOKEN: ${{ github.token }}
         # Fails if the release already exists: a published version is never overwritten.
-        run: gh release create "$GITHUB_REF_NAME" blood-pressure-card.js --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" blood-pressure-card.js --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"
