@@ -1,6 +1,16 @@
 // Loads the card into a happy-dom window so tests can drive the real custom
 // element: setConfig, the hass setter and the rendered shadow DOM.
+import { after, afterEach } from 'node:test';
 import { Window } from 'happy-dom';
+
+// Mounted cards keep a midnight timer; removing them clears it so the test
+// process can exit.
+afterEach(() => {
+  document.body.replaceChildren();
+});
+after(() => {
+  document.body.replaceChildren();
+});
 
 const win = new Window({ url: 'http://localhost/' });
 for (const key of ['window', 'document', 'HTMLElement', 'customElements', 'Event', 'CustomEvent']) {
@@ -58,6 +68,7 @@ export async function mount(config, hass) {
   return el;
 }
 
-export const settle = () => new Promise((r) => setTimeout(r, 0));
+// setImmediate, not setTimeout, so tests can mock timers and still settle.
+export const settle = () => new Promise((r) => setImmediate(r));
 
 export const text = (el) => (el.shadowRoot.querySelector('ha-card')?.textContent || '').replace(/\s+/g, ' ').trim();

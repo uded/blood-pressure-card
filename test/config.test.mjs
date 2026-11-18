@@ -18,7 +18,13 @@ test('numeric strings are accepted for pair_window and height', () => {
   assert.equal(c.height, 320);
 });
 
+test('thresholds defaults to office and accepts home', () => {
+  assert.equal(normalizeConfig(BASE).thresholds, 'office');
+  assert.equal(normalizeConfig({ ...BASE, thresholds: 'home' }).thresholds, 'home');
+});
+
 const rejects = [
+  [{ thresholds: 'clinic' }, /thresholds/],
   [{ default_view: 'day' }, /default_view/],
   [{ height: 'tall' }, /height/],
   [{ height: 0 }, /height/],

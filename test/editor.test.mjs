@@ -74,6 +74,13 @@ test('editor renders an ha-form with the config and an entity picker for systoli
   assert.deepEqual(sys.selector, { entity: { domain: 'sensor' } });
 });
 
+test('editor offers office and home thresholds', () => {
+  const form = editor().shadowRoot.querySelector('ha-form');
+  const f = form.schema.flatMap((s) => s.schema || [s]).find((s) => s.name === 'thresholds');
+  assert.deepEqual(f.selector.select.options.map((o) => o.value), ['office', 'home']);
+  assert.equal(form.data.thresholds, 'office');
+});
+
 test('editing a field fires config-changed with the merged config', () => {
   const el = editor();
   let got = null;

@@ -21,6 +21,15 @@ test('start-time state and restart repeats are not readings', () => {
   assert.equal(s.points.length, 4);
 });
 
+test('recovery from unavailable at period start is not a reading when the value is unchanged', () => {
+  const rows = [
+    { s: 'unavailable', lu: START / 1000 }, // state carried in from before the period
+    { s: '128', lu: T('2026-11-01T00:05:00Z') }, // sensor back with the old value
+  ];
+  assert.equal(parseSeries(rows, START, 128).events.length, 0);
+  assert.equal(parseSeries(rows, START, 135).events.length, 1, 'a different value is a real reading');
+});
+
 test('first value counts when the sensor had no prior history', () => {
   const s = parseSeries([{ s: '130', lu: T('2026-11-02T08:00:00Z') }], START);
   assert.equal(s.events.length, 1);
@@ -81,6 +90,25 @@ test('week starts on Monday, year has 12 buckets', () => {
   assert.equal(makeRange('year', -1, new Date(2026, 10, 18), 'en').label, '2025');
 });
 
+test('periods can be built in a time zone other than the browser one', () => {
+  const now = new Date('2026-11-18T01:00:00+09:00'); // still 17 Nov in Europe and America
+  const w = makeRange('week', 0, now, 'en', 'Asia/Tokyo');
+  assert.equal(w.start.getTime(), Date.parse('2026-11-16T00:00:00+09:00'), 'Monday 16 Nov, Tokyo midnight');
+  assert.equal(w.buckets[2].s.getTime(), Date.parse('2026-11-18T00:00:00+09:00'));
+  const m = makeRange('month', -1, now, 'en', 'Asia/Tokyo');
+  assert.equal(m.start.getTime(), Date.parse('2026-10-01T00:00:00+09:00'));
+  assert.equal(m.buckets.length, 31);
+  const y = makeRange('year', 0, now, 'en', 'Asia/Tokyo');
+  assert.equal(y.end.getTime(), Date.parse('2027-01-01T00:00:00+09:00'));
+});
+
+test('zoned days follow DST: 29 Mar 2026 in Warsaw is 23 hours', () => {
+  const w = makeRange('week', 0, new Date('2026-03-25T12:00:00Z'), 'en', 'Europe/Warsaw');
+  const sunday = w.buckets[6];
+  assert.equal(sunday.s.getTime(), Date.parse('2026-03-29T00:00:00+01:00'));
+  assert.equal(sunday.e.getTime() - sunday.s.getTime(), 23 * 3600e3);
+});
+
 test('ESH classification', () => {
   assert.equal(classify(118, 76), 'o');
   assert.equal(classify(125, 79), 'n');
@@ -88,6 +116,24 @@ test('ESH classification', () => {
   assert.equal(classify(142, 87), 'g1');
   assert.equal(classify(150, 101), 'g2');
   assert.equal(classify(181, 90), 'g3');
+});
+
+test('home thresholds: hypertension from 135/85', () => {
+  assert.equal(classify(137, 86, 'office'), 'hn');
+  assert.equal(classify(137, 86, 'home'), 'g1');
+  assert.equal(classify(134, 80, 'home'), 'hn');
+  assert.equal(classify(120, 85, 'home'), 'g1');
+  assert.equal(classify(118, 76, 'home'), 'o');
+  assert.equal(classify(165, 90, 'home'), 'g2');
+  assert.equal(classify(137, 86), 'hn', 'office stays the default');
+});
+
+test('aggregate and summarize use the chosen thresholds', () => {
+  const readings = [{ t: START + 3600e3, sys: 137, dia: 86, pulse: null }];
+  const [b] = aggregate(readings, [{ s: new Date(START), e: new Date(END) }], 'home');
+  assert.equal(b.cat, 'g1');
+  assert.equal(summarize(readings, 'home').cat, 'g1');
+  assert.equal(summarize(readings).cat, 'hn');
 });
 
 test('non-numeric text such as "12/80" is not read as 12', () => {

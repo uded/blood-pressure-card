@@ -12,17 +12,25 @@
  * MIT licensed. https://github.com/uded/blood-pressure-card
  */
 
-export const VERSION = '0.2.1';
+export const VERSION = '0.2.2';
 
 const DAY = 86400000;
 
-// ESH 2023 office blood pressure categories.
-export function classify(sys, dia) {
-  if (sys >= 180 || dia >= 110) return 'g3';
-  if (sys >= 160 || dia >= 100) return 'g2';
-  if (sys >= 140 || dia >= 90) return 'g1';
-  if (sys >= 130 || dia >= 85) return 'hn';
-  if (sys >= 120 || dia >= 80) return 'n';
+/**
+ * Lower bounds [systolic, diastolic] of each category, worst first; either
+ * number reaching a bound is enough. `office` is the ESH 2023 office table.
+ * `home` moves the hypertension boundary to the ESH home threshold, 135/85;
+ * ESH defines no home grades 2 and 3, so those keep the office values.
+ */
+export const THRESHOLDS = {
+  office: { g3: [180, 110], g2: [160, 100], g1: [140, 90], hn: [130, 85], n: [120, 80] },
+  home: { g3: [180, 110], g2: [160, 100], g1: [135, 85], hn: [130, 85], n: [120, 80] },
+};
+
+export function classify(sys, dia, table = 'office') {
+  for (const [cat, [s, d]] of Object.entries(THRESHOLDS[table])) {
+    if (sys >= s || dia >= d) return cat;
+  }
   return 'o';
 }
 
@@ -54,6 +62,7 @@ const I18N = {
     loading: 'Loading…',
     error: 'Could not load history',
     notFound: 'Entity not found',
+    basis: { office: 'ESH office thresholds', home: 'ESH home thresholds' },
     meas: (n) => `${n} ${n === 1 ? 'reading' : 'readings'}`,
     cat: {
       o: 'Optimal',
@@ -82,6 +91,7 @@ const I18N = {
     loading: 'Ładowanie…',
     error: 'Nie udało się pobrać historii',
     notFound: 'Nie znaleziono encji',
+    basis: { office: 'progi gabinetowe ESH', home: 'progi domowe ESH' },
     meas: (n) => {
       if (n === 1) return '1 pomiar';
       const d = n % 10;
@@ -111,10 +121,12 @@ const I18N = {
  *    repeats the last numeric value (HA restart, unavailable -> available)
  *    is not a new reading.
  */
-export function parseSeries(list, startMs = -Infinity) {
+export function parseSeries(list, startMs = -Infinity, seed = null) {
   const points = [];
   const events = [];
-  let last = null;
+  // `seed` is the last numeric value from before the window, when the window
+  // starts on a non-numeric state; without it a recovery looks like a reading.
+  let last = seed;
   (list || []).forEach((e) => {
     const t = e.lu !== undefined ? e.lu * 1000 : Date.parse(e.last_updated || e.last_changed);
     const raw = String(e.s !== undefined ? e.s : e.state).trim();
@@ -165,7 +177,7 @@ export function buildReadings(sys, dia, pulse, startMs, endMs, windowMs) {
   return out;
 }
 
-export function aggregate(readings, buckets) {
+export function aggregate(readings, buckets, table = 'office') {
   const rows = buckets.map((b) => ({ ...b, items: [] }));
   for (const r of readings) {
     const b = rows.find((x) => r.t >= x.s.getTime() && r.t < x.e.getTime());
@@ -182,12 +194,12 @@ export function aggregate(readings, buckets) {
     b.sysAvg = it.reduce((a, r) => a + r.sys, 0) / it.length;
     b.diaAvg = it.reduce((a, r) => a + r.dia, 0) / it.length;
     // Classify what is displayed (rounded), so "140" never reads "High normal".
-    b.cat = classify(Math.round(b.sysAvg), Math.round(b.diaAvg));
+    b.cat = classify(Math.round(b.sysAvg), Math.round(b.diaAvg), table);
   }
   return rows;
 }
 
-export function summarize(readings) {
+export function summarize(readings, table = 'office') {
   if (!readings.length) return null;
   const by = (key, dir) =>
     readings.reduce((best, r) => (best === null || (dir > 0 ? r[key] > best[key] : r[key] < best[key]) ? r : best), null);
@@ -197,7 +209,7 @@ export function summarize(readings) {
     n: readings.length,
     sysAvg,
     diaAvg,
-    cat: classify(Math.round(sysAvg), Math.round(diaAvg)),
+    cat: classify(Math.round(sysAvg), Math.round(diaAvg), table),
     sysHigh: by('sys', 1),
     diaHigh: by('dia', 1),
     sysLow: by('sys', -1),
@@ -215,6 +227,7 @@ const DEFAULTS = {
   pair_window: 120,
   height: 280,
   show_stats: true,
+  thresholds: 'office',
 };
 
 /**
@@ -238,6 +251,9 @@ export function normalizeConfig(config) {
   }
   if (c.systolic === c.diastolic) fail('"systolic" and "diastolic" must be different entities');
 
+  if (!(c.thresholds in THRESHOLDS)) {
+    fail(`"thresholds" must be one of ${Object.keys(THRESHOLDS).join(', ')}, got ${JSON.stringify(c.thresholds)}`);
+  }
   if (!VIEWS.includes(c.default_view)) fail(`"default_view" must be one of ${VIEWS.join(', ')}, got ${JSON.stringify(c.default_view)}`);
 
   const h = Number(c.height);
@@ -285,49 +301,91 @@ export function suggestCard(hass, entityId) {
   return { label: 'Blood Pressure Card', config };
 }
 
-/** Period boundaries + buckets for a view ('week' | 'month' | 'year'). */
-export function makeRange(view, offset, now, lang) {
+/** Calendar date {y, m (0-based), d, dow (0 = Sunday)} of an instant in `tz`. */
+function dateIn(ms, tz) {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric' })
+      .formatToParts(new Date(ms))
+      .map((x) => [x.type, Number(x.value)]),
+  );
+  return { y: p.year, m: p.month - 1, d: p.day, dow: new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay() };
+}
+
+/** Offset of `tz` from UTC at instant `ms`, in ms. */
+function tzOffset(ms, tz) {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    })
+      .formatToParts(new Date(ms))
+      .map((x) => [x.type, Number(x.value)]),
+  );
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / 1000) * 1000;
+}
+
+/** Midnight starting day (y, m, d) in `tz`; m and d may overflow like in Date.UTC. */
+function midnight(y, m, d, tz) {
+  const wall = Date.UTC(y, m, d);
+  const guess = wall - tzOffset(wall, tz);
+  return new Date(wall - tzOffset(guess, tz)); // second pass lands on the right side of a DST change
+}
+
+/**
+ * Period boundaries + buckets for a view ('week' | 'month' | 'year'). Days are
+ * calendar days in `tz` (default: the browser's zone), so DST days are 23 or 25 h.
+ */
+export function makeRange(view, offset, now, lang, tz) {
+  const zone = tz || new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const fmt = (o) => new Intl.DateTimeFormat(lang, { ...o, timeZone: zone });
+  const day = (y, m, d) => midnight(y, m, d, zone);
+  const today = dateIn(now.getTime(), zone);
   const buckets = [];
   let start;
   let end;
   let label;
-  const y = now.getFullYear();
-  const m = now.getMonth();
   if (view === 'week') {
-    const dow = (now.getDay() + 6) % 7; // Monday first
-    start = new Date(y, m, now.getDate() - dow + 7 * offset);
-    end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
-    const wd = new Intl.DateTimeFormat(lang, { weekday: 'narrow' });
-    const tf = new Intl.DateTimeFormat(lang, { weekday: 'short', day: 'numeric', month: 'short' });
+    const first = today.d - ((today.dow + 6) % 7) + 7 * offset; // Monday first
+    start = day(today.y, today.m, first);
+    end = day(today.y, today.m, first + 7);
+    const wd = fmt({ weekday: 'narrow' });
+    const tf = fmt({ weekday: 'short', day: 'numeric', month: 'short' });
     for (let i = 0; i < 7; i++) {
-      const s = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
-      const e = new Date(s.getFullYear(), s.getMonth(), s.getDate() + 1);
-      buckets.push({ s, e, label: wd.format(s), title: tf.format(s) });
+      const s = day(today.y, today.m, first + i);
+      buckets.push({ s, e: day(today.y, today.m, first + i + 1), label: wd.format(s), title: tf.format(s) });
     }
-    const f = new Intl.DateTimeFormat(lang, { day: 'numeric', month: 'short' });
+    const f = fmt({ day: 'numeric', month: 'short' });
     label = `${f.format(start)} – ${f.format(new Date(end.getTime() - 1))}`;
   } else if (view === 'year') {
-    const yy = y + offset;
-    start = new Date(yy, 0, 1);
-    end = new Date(yy + 1, 0, 1);
-    const mf = new Intl.DateTimeFormat(lang, { month: 'narrow' });
-    const tf = new Intl.DateTimeFormat(lang, { month: 'long', year: 'numeric' });
+    const yy = today.y + offset;
+    start = day(yy, 0, 1);
+    end = day(yy + 1, 0, 1);
+    const mf = fmt({ month: 'narrow' });
+    const tf = fmt({ month: 'long', year: 'numeric' });
     for (let i = 0; i < 12; i++) {
-      const s = new Date(yy, i, 1);
-      buckets.push({ s, e: new Date(yy, i + 1, 1), label: mf.format(s), title: tf.format(s) });
+      const s = day(yy, i, 1);
+      buckets.push({ s, e: day(yy, i + 1, 1), label: mf.format(s), title: tf.format(s) });
     }
     label = String(yy);
   } else {
-    start = new Date(y, m + offset, 1);
-    end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-    const days = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
-    const tf = new Intl.DateTimeFormat(lang, { weekday: 'short', day: 'numeric', month: 'short' });
+    const base = new Date(Date.UTC(today.y, today.m + offset, 1));
+    const y = base.getUTCFullYear();
+    const m = base.getUTCMonth();
+    start = day(y, m, 1);
+    end = day(y, m + 1, 1);
+    const days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const tf = fmt({ weekday: 'short', day: 'numeric', month: 'short' });
     for (let d = 1; d <= days; d++) {
-      const s = new Date(start.getFullYear(), start.getMonth(), d);
-      const e = new Date(start.getFullYear(), start.getMonth(), d + 1);
-      buckets.push({ s, e, label: (d - 1) % 7 === 0 ? String(d) : '', title: tf.format(s) });
+      const s = day(y, m, d);
+      buckets.push({ s, e: day(y, m, d + 1), label: (d - 1) % 7 === 0 ? String(d) : '', title: tf.format(s) });
     }
-    label = new Intl.DateTimeFormat(lang, { month: 'long', year: 'numeric' }).format(start);
+    label = fmt({ month: 'long', year: 'numeric' }).format(start);
   }
   return { start, end, buckets, label };
 }
@@ -395,6 +453,33 @@ export class BloodPressureCard extends BaseElement {
     }
   }
 
+  connectedCallback() {
+    this._scheduleMidnight();
+  }
+
+  disconnectedCallback() {
+    clearTimeout(this._midnight);
+    this._midnight = null;
+  }
+
+  /**
+   * An open dashboard (a wall tablet) gets no reload at midnight, so check the
+   * period just after each midnight and reload when the current one changed.
+   */
+  _scheduleMidnight() {
+    clearTimeout(this._midnight);
+    const zone = this._tz() || new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const today = dateIn(Date.now(), zone);
+    const next = midnight(today.y, today.m, today.d + 1, zone).getTime() + 1000;
+    this._midnight = setTimeout(() => {
+      this._scheduleMidnight();
+      if (!this._hass || !this._config || !this._range || this._offset !== 0) return;
+      const now = makeRange(this._view, 0, new Date(), this._lang(), this._tz());
+      if (now.start.getTime() !== this._range.start.getTime()) this._load();
+      else this._render(); // today moved: future days are dimmed differently
+    }, next - Date.now());
+  }
+
   getCardSize() {
     return this._config && this._config.show_stats ? 9 : 5;
   }
@@ -406,6 +491,13 @@ export class BloodPressureCard extends BaseElement {
   _lang() {
     const h = this._hass || {};
     return (this._config && this._config.language) || (h.locale && h.locale.language) || h.language || 'en';
+  }
+
+  /** HA profile time zone: "server" uses HA's configured zone; the default "local" the browser's. */
+  _tz() {
+    const h = this._hass || {};
+    if (h.locale && h.locale.time_zone === 'server' && h.config && h.config.time_zone) return h.config.time_zone;
+    return undefined;
   }
 
   _t() {
@@ -423,7 +515,7 @@ export class BloodPressureCard extends BaseElement {
     const ids = [c.systolic, c.diastolic];
     if (c.pulse) ids.push(c.pulse);
     try {
-      const range = makeRange(this._view, this._offset, new Date(), this._lang());
+      const range = makeRange(this._view, this._offset, new Date(), this._lang(), this._tz());
       this._range = range;
       // Pulse is optional: without it the chart still works, just without pulse.
       this._missing = [c.systolic, c.diastolic].filter((e) => !this._hass.states[e]);
@@ -451,11 +543,16 @@ export class BloodPressureCard extends BaseElement {
         include_start_time_state: true,
       });
       if (id !== this._req) return;
-      const sys = parseSeries(res[c.systolic], fetchStart);
-      const dia = parseSeries(res[c.diastolic], fetchStart);
+      const seeds = await this._seeds(res, [c.systolic, c.diastolic], fetchStart);
+      if (id !== this._req) return;
+      const sys = parseSeries(res[c.systolic], fetchStart, seeds[c.systolic]);
+      const dia = parseSeries(res[c.diastolic], fetchStart, seeds[c.diastolic]);
       const pulse = c.pulse ? parseSeries(res[c.pulse], fetchStart) : null;
       const readings = buildReadings(sys, dia, pulse, range.start.getTime(), range.end.getTime(), pw);
-      this._data = { buckets: aggregate(readings, range.buckets), summary: summarize(readings) };
+      this._data = {
+        buckets: aggregate(readings, range.buckets, c.thresholds),
+        summary: summarize(readings, c.thresholds),
+      };
       this._loading = false;
       this._render();
     } catch (e) {
@@ -466,6 +563,34 @@ export class BloodPressureCard extends BaseElement {
       this._err = (e && (e.message || e.code)) || String(e);
       this._render();
     }
+  }
+
+  /**
+   * For entities whose window starts on a non-numeric state (unavailable,
+   * unknown), look back up to 30 days for the last real value, so the
+   * sensor's recovery is not counted as a new reading. One extra request,
+   * only in that case.
+   */
+  async _seeds(res, ids, fetchStart) {
+    const numeric = (r) => r && Number.isFinite(Number(String(r.s !== undefined ? r.s : r.state).trim() || NaN));
+    const need = ids.filter((e) => res[e] && res[e].length && !numeric(res[e][0]));
+    if (!need.length) return {};
+    const back = await this._hass.callWS({
+      type: 'history/history_during_period',
+      start_time: new Date(fetchStart - 30 * DAY).toISOString(),
+      end_time: new Date(fetchStart).toISOString(),
+      entity_ids: need,
+      minimal_response: true,
+      no_attributes: true,
+      significant_changes_only: false,
+      include_start_time_state: true,
+    });
+    const seeds = {};
+    for (const e of need) {
+      const pts = parseSeries(back[e]).points;
+      if (pts.length) seeds[e] = pts[pts.length - 1].v;
+    }
+    return seeds;
   }
 
   _onClick(ev) {
@@ -522,8 +647,8 @@ export class BloodPressureCard extends BaseElement {
       svg += `<line x1="${left}" x2="${right}" y1="${yy}" y2="${yy}" class="grid${major ? ' major' : ''}"/>`;
       if (major) svg += `<text x="${W - 4}" y="${yy}" class="ylab" text-anchor="end" dominant-baseline="middle">${v}</text>`;
     }
-    // Reference: hypertension thresholds 140 / 90.
-    for (const v of [140, 90]) {
+    // Reference: the hypertension thresholds of the chosen table (140/90 or 135/85).
+    for (const v of THRESHOLDS[this._config.thresholds].g1) {
       if (v > lo && v < hi) {
         const yy = y(v).toFixed(1);
         svg += `<line x1="${left}" x2="${right}" y1="${yy}" y2="${yy}" class="ref" stroke="${col.g1}"/>`;
@@ -585,17 +710,23 @@ export class BloodPressureCard extends BaseElement {
     const t = this._t();
     const s = this._data.summary;
     const col = this._colors();
-    const df = new Intl.DateTimeFormat(this._lang(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const df = new Intl.DateTimeFormat(this._lang(), {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: this._tz(),
+    });
     const row = (label, r) =>
       `<div class="row"><div><div>${esc(label)}</div><div class="muted small">${esc(df.format(new Date(r.t)))}${
         r.pulse !== null && r.pulse !== undefined ? ` · ${esc(t.pulse)} ${r.pulse}` : ''
-      }</div></div><div class="val"><span class="dot" style="background:${col[classify(r.sys, r.dia)]}"></span>${r.sys}/${r.dia} <span class="muted">mmHg</span></div></div>`;
+      }</div></div><div class="val"><span class="dot" style="background:${col[classify(r.sys, r.dia, this._config.thresholds)]}"></span>${r.sys}/${r.dia} <span class="muted">mmHg</span></div></div>`;
     return `
       <div class="tiles">
         <div class="tile"><div class="k">${esc(t.sysAvg)}</div><div class="v">${Math.round(s.sysAvg)}<span class="u">mmHg</span></div></div>
         <div class="tile"><div class="k">${esc(t.diaAvg)}</div><div class="v">${Math.round(s.diaAvg)}<span class="u">mmHg</span></div></div>
       </div>
-      <div class="catline"><span class="dot" style="background:${col[s.cat]}"></span>${esc(t.cat[s.cat])} · ${esc(t.meas(s.n))}</div>
+      <div class="catline"><span class="dot" style="background:${col[s.cat]}"></span>${esc(t.cat[s.cat])} · ${esc(t.meas(s.n))} · ${esc(t.basis[this._config.thresholds])}</div>
       <div class="sec">${esc(t.highest)}</div>
       <div class="list">${row(t.sys, s.sysHigh)}${row(t.dia, s.diaHigh)}</div>
       <div class="sec">${esc(t.lowest)}</div>
@@ -645,6 +776,18 @@ const EDITOR_SCHEMA = [
   { name: 'pulse', selector: sensor },
   { name: 'title', selector: { text: {} } },
   {
+    name: 'thresholds',
+    selector: {
+      select: {
+        mode: 'list',
+        options: [
+          { value: 'office', label: 'Office (ESH, hypertension from 140/90)' },
+          { value: 'home', label: 'Home (ESH, hypertension from 135/85)' },
+        ],
+      },
+    },
+  },
+  {
     type: 'grid',
     name: '',
     schema: [
@@ -669,6 +812,7 @@ const EDITOR_LABELS = {
     diastolic: 'Diastolic sensor',
     pulse: 'Pulse sensor (optional)',
     title: 'Title (leave empty to hide)',
+    thresholds: 'Category thresholds',
     default_view: 'Default view',
     language: 'Language (default: HA language)',
     pair_window: 'Pairing window',
@@ -680,6 +824,7 @@ const EDITOR_LABELS = {
     diastolic: 'Czujnik rozkurczowego',
     pulse: 'Czujnik tętna (opcjonalny)',
     title: 'Tytuł (puste ukrywa tytuł)',
+    thresholds: 'Progi kategorii',
     default_view: 'Widok domyślny',
     language: 'Język (domyślnie język HA)',
     pair_window: 'Okno parowania',

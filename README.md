@@ -52,6 +52,7 @@ pulse: sensor.withings_heart_pulse   # optional, shown next to highest/lowest
 | `default_view` | `month` | `week`, `month` or `year` |
 | `height` | `280` | Chart height in viewBox units (width is 700) |
 | `show_stats` | `true` | Show the averages and the highest/lowest lists |
+| `thresholds` | `office` | `office` (ESH office table, hypertension from 140/90) or `home` (ESH home threshold, hypertension from 135/85) |
 | `pair_window` | `120` | Seconds (1 to 3600) within which systolic and diastolic changes count as one reading |
 | `language` | HA language | `en` or `pl` |
 | `colors` | ESH palette | Override category colours: `o`, `n`, `hn`, `g1`, `g2`, `g3`. Values are plain CSS colours: `#hex`, `rgb()`, `hsl()`, `var(--name)` or a colour name |
@@ -69,6 +70,9 @@ The card reads the recorder **history** (`history/history_during_period`), not l
 - Implausible values are dropped as sensor glitches: systolic outside 50 to 300, diastolic outside 20 to 200, or diastolic not below systolic.
 - A reading that starts just before a period boundary stays in the period it started in.
 - The colour of a day or period comes from its average rounded to whole mmHg, the same number the card shows.
+- If a sensor is `unavailable` at the start of a period, the card looks up to 30 days back for its last value, so the sensor coming back is not counted as a new reading.
+- Days follow the time zone setting in your HA profile: your browser's zone by default, or the server's when the profile says so.
+- On a dashboard left open, the card moves to the new day, week, month or year just after midnight.
 
 ### History retention
 
@@ -81,7 +85,9 @@ recorder:
 
 When you open a period older than 10 days that has no readings, the card says the history may have been purged.
 
-## Categories (ESH 2023, office BP)
+## Categories (ESH 2023)
+
+With `thresholds: home`, grade 1 hypertension starts at 135/85 instead of 140/90 (the ESH home blood pressure threshold) and the dashed reference lines move with it. ESH defines no home equivalents for grades 2 and 3, so those keep the office values. The card shows which table it uses under the averages. Office values:
 
 | Key | Category | Systolic | | Diastolic |
 | --- | --- | --- | --- | --- |
