@@ -65,14 +65,14 @@ The card reads the recorder **history** (`history/history_during_period`), not l
 
 ### History retention
 
-HA keeps history for **10 days** by default (`recorder.purge_keep_days`). To see a full month or year, keep history longer:
+The card shows whatever the recorder still has. HA keeps **10 days** by default (`recorder.purge_keep_days`), so out of the box the month view covers the last 10 days. Raise it if you want more:
 
 ```yaml
 recorder:
-  purge_keep_days: 400
+  purge_keep_days: 30   # or 90, 365… whatever your database can take
 ```
 
-If the database grows too much, exclude noisy entities from the recorder rather than shortening retention. When the card shows an older period with no readings, it says that the history may have been purged.
+When you open a period older than 10 days that has no readings, the card says the history may have been purged.
 
 ## Categories (ESH 2023, office BP)
 
