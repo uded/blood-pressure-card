@@ -12,15 +12,24 @@ permissions:
 
 jobs:
   test:
+    # Day and period boundaries depend on the zone: test where midnight
+    # falls far from UTC, on a DST edge, and on a 30-minute DST shift.
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [UTC, Europe/Warsaw, America/New_York, Australia/Lord_Howe, Asia/Tokyo]
+    name: test (${{ matrix.tz }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      TZ: ${{ matrix.tz }}
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: 🟢 Set up Node
-        uses: actions/setup-node@v7.1.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
       - name: 🔍 Syntax check
@@ -35,6 +44,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: 🏠 HACS validation
-        uses: hacs/action@main
+        uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main, 2026-11-18
         with:
           category: plugin

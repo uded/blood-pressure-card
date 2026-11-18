@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Actions are pinned to commit SHAs; Dependabot moves the SHA and the version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']
+    # hacs/action has no current tags (the last is 22.5.0 from 2022) and is
+    # meant to run from main; bump its SHA by hand with `git ls-remote`.
+    ignore:
+      - dependency-name: hacs/action
+
+  # Dev dependencies only (happy-dom for tests); the card itself ships none.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      dev:
+        patterns: ['*']
