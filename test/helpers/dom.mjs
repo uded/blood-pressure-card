@@ -18,7 +18,7 @@ for (const key of ['window', 'document', 'HTMLElement', 'customElements', 'Event
 }
 
 const mod = await import('../../blood-pressure-card.js');
-export const { BloodPressureCard, suggestCard } = mod;
+export const { BloodPressureCard, suggestCard, PALETTE } = mod;
 
 const T = (iso) => Date.parse(iso) / 1000;
 
@@ -35,11 +35,12 @@ function historyWindow(list, msg) {
 }
 
 /** A minimal hass object whose callWS answers history_during_period from `history`. */
-export function fakeHass({ history = {}, states, language = 'en', callWS } = {}) {
+export function fakeHass({ history = {}, states, language = 'en', callWS, darkMode = true } = {}) {
   const ids = Object.keys(history);
   return {
     language,
     locale: { language },
+    themes: { darkMode },
     states: states || Object.fromEntries(ids.map((id) => [id, { last_updated: '2026-11-18T08:00:00Z' }])),
     calls: [],
     callWS:

@@ -10,7 +10,7 @@ A Home Assistant Lovelace card that charts blood pressure the way the Withings a
 
 - Last 7 / 30 / 365 days (or calendar week / month / year) with ‹ › navigation to earlier periods
 - Candles coloured by the ESH 2023 category of that day's average
-- Tap a day to see its range, average and category
+- Tap a day to see its range, average and category, or Tab to the chart and use the arrow keys (Home, End, Escape); screen readers announce the selected day
 - Period averages, plus the highest and lowest readings with their paired value, date and pulse
 - Works with any pair of systolic/diastolic sensors: Withings, the Apple Health sensors from the iOS Companion App, Health Connect, a template sensor…
 - Visual editor with entity pickers; `colors` stays YAML-only
@@ -56,7 +56,7 @@ pulse: sensor.withings_heart_pulse   # optional, shown next to highest/lowest
 | `thresholds` | `office` | `office` (ESH office table, hypertension from 140/90) or `home` (ESH home threshold, hypertension from 135/85) |
 | `pair_window` | `120` | Seconds (1 to 3600) within which systolic and diastolic changes count as one reading |
 | `language` | HA language | `en` or `pl` |
-| `colors` | ESH palette | Override category colours: `o`, `n`, `hn`, `g1`, `g2`, `g3`. Values are plain CSS colours: `#hex`, `rgb()`, `hsl()`, `var(--name)` or a colour name |
+| `colors` | ESH palette | Override category colours: `o`, `n`, `hn`, `g1`, `g2`, `g3`. Values are plain CSS colours: `#hex`, `rgb()`, `hsl()`, `var(--name)` or a colour name. The defaults follow the theme: bright shades on dark themes, deeper shades on light ones, each with at least 3:1 contrast against the card |
 
 An invalid option (say `pair_window: 2m` or an unknown `default_view`) shows Home Assistant's error card with the reason, instead of a chart with wrong data. `height` must be between 120 and 2000.
 

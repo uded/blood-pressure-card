@@ -77,6 +77,7 @@
       const hass = {
         language: params.get('lang') || 'en',
         locale: { language: params.get('lang') || 'en' },
+        themes: { darkMode: params.get('theme') !== 'light' },
         states: {
           'sensor.withings_systolic_blood_pressure': { last_updated: 'x' },
           'sensor.withings_diastolic_blood_pressure': { last_updated: 'x' },

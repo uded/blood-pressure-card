@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.4
+
+### New
+
+- **Works with the keyboard.** Tab to the chart, then use the arrow keys to go through the days (or months in the 365-day view). Home and End jump to the first day and to today, Escape closes the details. Screen readers read out the selected day and a one-line summary of the period.
+- **Readable colours on light themes.** The light yellow and green categories were hard to see on a white card. With a light theme the card now uses deeper shades of the same colours; dark themes keep the bright ones. Colours you set yourself under `colors` are not changed.
+
+### Fixed
+
+- **Focus stays where you left it.** Switching between 7, 30 and 365 days or stepping back with ‹ no longer throws keyboard focus to the top of the page.
+- The ‹ › buttons are labelled in the card language for screen readers.
+
 ## 0.2.3
 
 ### New

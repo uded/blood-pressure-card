@@ -12,7 +12,7 @@
  * MIT licensed. https://github.com/uded/blood-pressure-card
  */
 
-export const VERSION = '0.2.3';
+export const VERSION = '0.2.4';
 
 const DAY = 86400000;
 
@@ -34,14 +34,15 @@ export function classify(sys, dia, table = 'office') {
   return 'o';
 }
 
-const DEFAULT_COLORS = {
-  o: '#66BB6A',
-  n: '#9CCC65',
-  hn: '#FFCA28',
-  g1: '#FFA726',
-  g2: '#FF7043',
-  g3: '#E53935',
+/**
+ * Category colours per theme. Each one keeps at least 3:1 contrast against
+ * the card background (WCAG 1.4.11): the bright set fails on a white card.
+ */
+export const PALETTE = {
+  dark: { o: '#66BB6A', n: '#9CCC65', hn: '#FFCA28', g1: '#FFA726', g2: '#FF7043', g3: '#E53935' },
+  light: { o: '#2E7D32', n: '#689F38', hn: '#B58900', g1: '#EF6C00', g2: '#D84315', g3: '#C62828' },
 };
+const DEFAULT_COLORS = PALETTE.dark;
 
 const I18N = {
   en: {
@@ -62,6 +63,10 @@ const I18N = {
     loading: 'Loading…',
     error: 'Could not load history',
     notFound: 'Entity not found',
+    prev: 'Previous period',
+    next: 'Next period',
+    avg: 'average',
+    chartHint: 'Chart. Use the arrow keys to go through the days or months.',
     rolling: { week: '7 days', month: '30 days', year: '365 days' },
     basis: { office: 'ESH office thresholds', home: 'ESH home thresholds' },
     meas: (n) => `${n} ${n === 1 ? 'reading' : 'readings'}`,
@@ -92,6 +97,10 @@ const I18N = {
     loading: 'Ładowanie…',
     error: 'Nie udało się pobrać historii',
     notFound: 'Nie znaleziono encji',
+    prev: 'Poprzedni okres',
+    next: 'Następny okres',
+    avg: 'średnia',
+    chartHint: 'Wykres. Strzałkami przejdziesz przez kolejne dni lub miesiące.',
     rolling: { week: '7 dni', month: '30 dni', year: '365 dni' },
     basis: { office: 'progi gabinetowe ESH', home: 'progi domowe ESH' },
     meas: (n) => {
@@ -482,6 +491,7 @@ export class BloodPressureCard extends BaseElement {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: 'open' });
       this.shadowRoot.addEventListener('click', (ev) => this._onClick(ev));
+      this.shadowRoot.addEventListener('keydown', (ev) => this._onKey(ev));
     }
     this._data = null;
     if (this._hass) this._load();
@@ -489,6 +499,7 @@ export class BloodPressureCard extends BaseElement {
 
   set hass(hass) {
     const first = !this._hass;
+    const wasDark = this._dark();
     this._hass = hass;
     const c = this._config;
     if (!c) return;
@@ -498,6 +509,8 @@ export class BloodPressureCard extends BaseElement {
     if (first || key !== this._key) {
       this._key = key;
       this._load();
+    } else if (this._dark() !== wasDark) {
+      this._render(); // light or dark theme switched: swap the palette
     }
   }
 
@@ -552,8 +565,13 @@ export class BloodPressureCard extends BaseElement {
     return this._lang().startsWith('pl') ? I18N.pl : I18N.en;
   }
 
+  _dark() {
+    return Boolean(this._hass && this._hass.themes && this._hass.themes.darkMode);
+  }
+
   _colors() {
-    return { ...DEFAULT_COLORS, ...((this._config && this._config.colors) || {}) };
+    const base = this._dark() ? PALETTE.dark : PALETTE.light;
+    return { ...base, ...((this._config && this._config.colors) || {}) };
   }
 
   async _load() {
@@ -666,6 +684,26 @@ export class BloodPressureCard extends BaseElement {
     }
   }
 
+  /** Arrow keys, Home and End move the selected day (or month); Escape closes it. */
+  _onKey(ev) {
+    const chart = this._els && this._els.chart;
+    if (!chart || !this._range || !ev.composedPath().includes(chart)) return;
+    // Days that have not happened yet are skipped: the last one is today.
+    const now = Date.now();
+    const last = Math.max(0, this._range.buckets.findLastIndex((b) => b.s.getTime() <= now));
+    const cur = this._sel;
+    let next;
+    if (ev.key === 'Escape') next = null;
+    else if (ev.key === 'Home') next = 0;
+    else if (ev.key === 'End') next = last;
+    else if (ev.key === 'ArrowLeft') next = cur === null ? last : Math.max(0, cur - 1);
+    else if (ev.key === 'ArrowRight') next = cur === null ? last : Math.min(last, cur + 1);
+    else return;
+    ev.preventDefault();
+    this._sel = next;
+    this._render();
+  }
+
   _chart() {
     const t = this._t();
     const col = this._colors();
@@ -734,9 +772,17 @@ export class BloodPressureCard extends BaseElement {
     else if (this._data && !withData.length) {
       overlay = this._range.start.getTime() < now - 10 * DAY ? t.noneOld : t.none;
     }
-    return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="aspect-ratio:${W}/${H}">${svg}</svg>${
-      overlay ? `<div class="overlay">${esc(overlay)}</div>` : ''
-    }</div>`;
+    return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="aspect-ratio:${W}/${H}" role="img" aria-label="${esc(
+      this._summary(),
+    )}">${svg}</svg>${overlay ? `<div class="overlay">${esc(overlay)}</div>` : ''}`;
+  }
+
+  /** One sentence for screen readers: the period, its average and category. */
+  _summary() {
+    const t = this._t();
+    const s = this._data && this._data.summary;
+    if (!s) return this._range.label;
+    return `${this._range.label}: ${t.avg} ${Math.round(s.sysAvg)}/${Math.round(s.diaAvg)} mmHg, ${t.cat[s.cat]}, ${t.meas(s.n)}`;
   }
 
   _selection() {
@@ -786,33 +832,61 @@ export class BloodPressureCard extends BaseElement {
     const t = this._t();
     if (!this._range) {
       if (this._err) {
+        this._els = null;
         this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card><div class="sel">${esc(t.error)}: ${esc(this._err)}</div></ha-card>`;
       }
       return;
     }
-    const title = this._config.title !== undefined ? this._config.title : t.title;
-    const seg = ['week', 'month', 'year']
-      .map((v) => {
-        const name = this._config.range === 'rolling' ? t.rolling[v] : t[v];
-        return `<button data-view="${v}" class="${v === this._view ? 'on' : ''}">${esc(name)}</button>`;
-      })
-      .join('');
-    this.shadowRoot.innerHTML = `
-      <style>${STYLE}</style>
-      <ha-card>
-        <div class="hdr">
-          ${title ? `<div class="title">${esc(title)}</div>` : '<div></div>'}
-          <div class="seg">${seg}</div>
-        </div>
-        <div class="nav">
-          <button data-nav="-1" aria-label="previous">‹</button>
-          <div class="period">${esc(this._range.label)}</div>
-          <button data-nav="1" aria-label="next" ${this._offset >= 0 ? 'disabled' : ''}>›</button>
-        </div>
-        ${this._chart()}
-        ${this._selection()}
-        ${this._stats()}
-      </ha-card>`;
+    // The frame is built once and then updated in place, so keyboard focus
+    // and the live region survive every click and reload.
+    if (!this._els) {
+      this.shadowRoot.innerHTML = `
+        <style>${STYLE}</style>
+        <ha-card>
+          <div class="hdr">
+            <div class="title"></div>
+            <div class="seg">${['week', 'month', 'year'].map((v) => `<button data-view="${v}"></button>`).join('')}</div>
+          </div>
+          <div class="nav">
+            <button data-nav="-1">‹</button>
+            <div class="period"></div>
+            <button data-nav="1">›</button>
+          </div>
+          <div class="chart" tabindex="0" role="group"></div>
+          <div class="live" aria-live="polite"></div>
+          <div class="stats"></div>
+        </ha-card>`;
+      const q = (s) => this.shadowRoot.querySelector(s);
+      this._els = {
+        title: q('.title'),
+        seg: [...this.shadowRoot.querySelectorAll('[data-view]')],
+        prev: q('[data-nav="-1"]'),
+        next: q('[data-nav="1"]'),
+        period: q('.period'),
+        chart: q('.chart'),
+        live: q('.live'),
+        stats: q('.stats'),
+      };
+    }
+    const e = this._els;
+    e.title.textContent = this._config.title !== undefined ? this._config.title : t.title;
+    for (const b of e.seg) {
+      const v = b.dataset.view;
+      b.textContent = this._config.range === 'rolling' ? t.rolling[v] : t[v];
+      b.className = v === this._view ? 'on' : '';
+      b.setAttribute('aria-pressed', String(v === this._view));
+    }
+    e.prev.setAttribute('aria-label', t.prev);
+    e.next.setAttribute('aria-label', t.next);
+    const atEnd = this._offset >= 0;
+    // Disabling the focused › would drop focus to the page; hand it to ‹.
+    if (atEnd && this.shadowRoot.activeElement === e.next) e.prev.focus();
+    e.next.disabled = atEnd;
+    e.period.textContent = this._range.label;
+    e.chart.setAttribute('aria-label', t.chartHint);
+    e.chart.innerHTML = this._chart();
+    e.live.innerHTML = this._selection();
+    e.stats.innerHTML = this._stats();
   }
 }
 
@@ -946,6 +1020,9 @@ const STYLE = `
   .seg { display:inline-flex; background:var(--secondary-background-color); border-radius:999px; padding:3px; }
   .seg button { border:0; background:transparent; color:var(--primary-text-color); padding:5px 14px; border-radius:999px; font:inherit; font-size:.9em; cursor:pointer; }
   .seg button.on { background:var(--primary-color); color:var(--text-primary-color, #fff); }
+  button:focus-visible, .chart:focus-visible { outline:2px solid var(--primary-color); outline-offset:2px; }
+  .chart:focus:not(:focus-visible) { outline:none; }
+  .chart:focus-visible { border-radius:8px; }
   .nav { display:flex; align-items:center; justify-content:space-between; margin:10px 0 2px; }
   .nav button { border:0; background:transparent; color:var(--primary-text-color); font-size:1.6em; line-height:1; width:36px; height:32px; border-radius:8px; cursor:pointer; }
   .nav button:hover:not([disabled]) { background:var(--secondary-background-color); }
