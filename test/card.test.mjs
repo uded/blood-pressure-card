@@ -224,6 +224,54 @@ test('a new measurement empties the cache, so revisited periods are fresh', asyn
   assert.match(text(el), /150\/95/);
 });
 
+test('the calendar week follows the first weekday from the HA profile', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const hass = fakeHass({ states: { 'sensor.sys': {}, 'sensor.dia': {} } });
+  hass.locale.first_weekday = 'sunday';
+  const el = await mount({ ...BASE, default_view: 'week' }, hass);
+  assert.match(text(el), /Nov 15 – Nov 21/);
+});
+
+test('"language" as first weekday takes it from the locale', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const hass = fakeHass({ states: { 'sensor.sys': {}, 'sensor.dia': {} }, language: 'en-US' });
+  hass.locale.first_weekday = 'language';
+  const el = await mount({ ...BASE, default_view: 'week' }, hass);
+  assert.match(text(el), /Nov 15 – Nov 21/, 'US weeks start on Sunday');
+});
+
+test('a pulse update reloads the card', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const st = (p) => ({ 'sensor.sys': { last_updated: 'a' }, 'sensor.dia': { last_updated: 'a' }, 'sensor.pulse': { last_updated: p } });
+  const hass = fakeHass({ states: st('1') });
+  const el = await mount({ ...BASE, pulse: 'sensor.pulse' }, hass);
+  const before = hass.calls.length;
+  el.hass = { ...hass, states: st('2') };
+  await settle();
+  assert.equal(hass.calls.length, before + 1);
+});
+
+test('‹ stops at a period the recorder has no history for', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const hass = fakeHass({ history: { 'sensor.sys': [], 'sensor.dia': [] } });
+  const el = await mount(BASE, hass);
+  assert.equal(el.shadowRoot.querySelector('[data-nav="-1"]').disabled, true);
+});
+
+test('the card tells screen readers which language it is in', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const el = await mount({ ...BASE, language: 'pl' }, fakeHass({ states: { 'sensor.sys': {}, 'sensor.dia': {} } }));
+  assert.equal(el.shadowRoot.querySelector('ha-card').getAttribute('lang'), 'pl');
+});
+
+test('axis labels use the font size that fits the card width', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const el = await mount(BASE, fakeHass({ states: { 'sensor.sys': {}, 'sensor.dia': {} } }));
+  el._fs = 24;
+  el._render();
+  assert.equal(el.shadowRoot.querySelector('text.ylab').getAttribute('font-size'), '24');
+});
+
 for (const pair_window of ['2m', -5, 0, Infinity]) {
   test(`setConfig rejects pair_window ${String(pair_window)}`, async () => {
     const el = document.createElement('blood-pressure-card');

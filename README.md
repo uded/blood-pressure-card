@@ -8,7 +8,7 @@ A Home Assistant Lovelace card that charts blood pressure the way the Withings a
   <img src="docs/week-pl.png" width="32%" alt="Week view, Polish">
 </p>
 
-- Last 7 / 30 / 365 days (or calendar week / month / year) with ‹ › navigation to earlier periods
+- Last 7 / 30 / 365 days (or calendar week / month / year) with ‹ › navigation to earlier periods, back to the oldest history your recorder keeps
 - Candles coloured by the ESH 2023 category of that day's average
 - Tap a day to see its range, average and category, or Tab to the chart and use the arrow keys (Home, End, Escape); screen readers announce the selected day
 - Period averages, plus the highest and lowest readings with their paired value, date and pulse
@@ -27,12 +27,22 @@ A Home Assistant Lovelace card that charts blood pressure the way the Withings a
 
 ### Manual
 
-Copy `blood-pressure-card.js` to `/config/www/`, then add a dashboard resource:
+1. Download `blood-pressure-card.js` from the [latest release](https://github.com/uded/blood-pressure-card/releases/latest) and copy it to `/config/www/`.
+2. **Settings → Dashboards → ⋮ → Resources → Add resource**: URL `/local/blood-pressure-card.js?v=1`, type **JavaScript module**. (Resources are only listed with advanced mode on in your user profile.)
+3. Reload the browser.
+
+When you update the file, raise the `?v=` number in the resource URL, otherwise browsers and the companion app keep the old version cached. HACS does this for you.
+
+With dashboards in YAML mode, add the same entry to the `resources:` list of your Lovelace configuration:
 
 ```yaml
-url: /local/blood-pressure-card.js
-type: module
+- url: /local/blood-pressure-card.js?v=1
+  type: module
 ```
+
+### Requirements
+
+Home Assistant 2024.1 or newer, with the recorder keeping history for your sensors. Some parts need newer versions and are simply skipped on older ones: sizing in the **Sections** dashboard layout needs 2024.11, and the card suggestion when you pick a sensor needs a recent release (it works in 2026.11).
 
 ## Configure
 
@@ -52,7 +62,7 @@ pulse: sensor.withings_heart_pulse   # optional, shown next to highest/lowest
 | `default_view` | `month` | `week`, `month` or `year` |
 | `height` | `280` | Chart height in viewBox units (width is 700) |
 | `show_stats` | `true` | Show the averages and the highest/lowest lists |
-| `range` | `rolling` | `rolling`: the last 7, 30 or 365 days up to today. `calendar`: this week (from Monday), this month or this year |
+| `range` | `rolling` | `rolling`: the last 7, 30 or 365 days up to today. `calendar`: this week (starting on the first weekday set in your HA profile), this month or this year |
 | `thresholds` | `office` | `office` (ESH office table, hypertension from 140/90) or `home` (ESH home threshold, hypertension from 135/85) |
 | `pair_window` | `120` | Seconds (1 to 3600) within which systolic and diastolic changes count as one reading |
 | `language` | HA language | `en` or `pl` |
@@ -66,7 +76,8 @@ For a full-screen panel, put the card in a dashboard view of type **Panel (singl
 
 The card reads the recorder **history** (`history/history_during_period`), not long-term statistics, because statistics merge readings into time-weighted averages and carry the last value over days without a reading.
 
-- Each change of the systolic or diastolic state counts as a reading. Changes within `pair_window` seconds of each other are paired into one reading. If only one of the two numbers changed (say 135/87 followed by 128/87), the reading takes the current value of the other.
+- Each change of the systolic or diastolic state counts as a reading. Every change within `pair_window` seconds of the first one belongs to the same reading, which takes the values in effect at the end of that window. If only one of the two numbers changed (say 135/87 followed by 128/87), the reading takes the current value of the other.
+- The pulse shown with a reading is the one recorded in that same window. A pulse from an earlier measurement is not reused.
 - A state that just repeats the last numeric value (HA restart, `unavailable` → back) is ignored. The downside is that two identical readings in a row count once. That doesn't change the min/max range but does slightly change the averages.
 - Implausible values are dropped as sensor glitches: systolic outside 50 to 300, diastolic outside 20 to 200, or diastolic not below systolic.
 - A reading that starts just before a period boundary stays in the period it started in.
@@ -100,6 +111,10 @@ With `thresholds: home`, grade 1 hypertension starts at 135/85 instead of 140/90
 | `g3` | Grade 3 hypertension | ≥ 180 | and/or | ≥ 110 |
 
 The colours are for orientation only and are not medical advice. Home readings are usually judged against lower thresholds (≥ 135/85).
+
+## Privacy
+
+Blood pressure is health data. Everyone who can open the dashboard sees the card, and every Home Assistant user can read the sensor history behind it. On a shared or wall-mounted dashboard, put the card in a view that only you can see (**Edit dashboard → view settings → Visible to**), or in a dashboard of its own that is not shown in the sidebar for other users. The card itself sends nothing anywhere: it only reads history from your Home Assistant.
 
 ## Develop
 

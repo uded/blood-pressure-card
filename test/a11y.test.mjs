@@ -81,7 +81,14 @@ test('focus stays on the period button after switching views', async (t) => {
 
 test('focus stays on ‹ after stepping back', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
-  const el = await mount(BASE, withReadings());
+  // A reading from January, so the previous week is not the end of the recorder.
+  const hass = fakeHass({
+    history: {
+      'sensor.sys': [{ s: '125', lu: lu(2026, 0, 10, 8) }, { s: '128', lu: lu(2026, 10, 15, 8) }],
+      'sensor.dia': [{ s: '80', lu: lu(2026, 0, 10, 8) }, { s: '82', lu: lu(2026, 10, 15, 8) }],
+    },
+  });
+  const el = await mount(BASE, hass);
   el.shadowRoot.querySelector('[data-nav="-1"]').focus();
   el.shadowRoot.querySelector('[data-nav="-1"]').click();
   await settle();

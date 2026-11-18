@@ -12,7 +12,7 @@
  * MIT licensed. https://github.com/uded/blood-pressure-card
  */
 
-export const VERSION = '0.2.5';
+export const VERSION = '0.2.6';
 
 const DAY = 86400000;
 const CACHE_SIZE = 12; // periods kept per card; the oldest is dropped first
@@ -183,7 +183,9 @@ export function buildReadings(sys, dia, pulse, startMs, endMs, windowMs) {
     const s = valueAt(sys.points, te);
     const d = valueAt(dia.points, te);
     if (s === null || d === null || !plausible(s, d)) return;
-    const p = pulse ? valueAt(pulse.points, te) : null;
+    // Only a pulse measured with this reading; an older one belongs to another.
+    const pp = pulse ? pulse.points.filter((x) => x.t >= t0 - windowMs && x.t <= te) : [];
+    const p = pp.length ? pp[pp.length - 1].v : null;
     out.push({ t: t0, sys: s, dia: d, pulse: p });
   });
   return out;
@@ -395,10 +397,19 @@ function rollingRange(view, offset, today, fmt, day) {
 }
 
 /**
+ * Font size, in chart units, that renders as at least 12 px at `widthPx`:
+ * the 700-unit-wide chart shrinks to fit narrow cards, and its text with it.
+ */
+export function chartFont(widthPx) {
+  return widthPx > 0 ? Math.max(12, Math.round((12 * 700) / widthPx)) : 12;
+}
+
+/**
  * Period boundaries + buckets for a view ('week' | 'month' | 'year'). Days are
  * calendar days in `tz` (default: the browser's zone), so DST days are 23 or 25 h.
+ * A calendar week starts on `firstDay` (0 = Sunday, 1 = Monday, 6 = Saturday).
  */
-export function makeRange(view, offset, now, lang, tz, mode = 'calendar') {
+export function makeRange(view, offset, now, lang, tz, mode = 'calendar', firstDay = 1) {
   const zone = tz || new Intl.DateTimeFormat().resolvedOptions().timeZone;
   const fmt = (o) => new Intl.DateTimeFormat(lang, { ...o, timeZone: zone });
   const day = (y, m, d) => midnight(y, m, d, zone);
@@ -409,7 +420,7 @@ export function makeRange(view, offset, now, lang, tz, mode = 'calendar') {
   let end;
   let label;
   if (view === 'week') {
-    const first = today.d - ((today.dow + 6) % 7) + 7 * offset; // Monday first
+    const first = today.d - ((today.dow - firstDay + 7) % 7) + 7 * offset; // firstDay: 0 = Sunday
     start = day(today.y, today.m, first);
     end = day(today.y, today.m, first + 7);
     const wd = fmt({ weekday: 'narrow' });
@@ -506,7 +517,7 @@ export class BloodPressureCard extends BaseElement {
     this._hass = hass;
     const c = this._config;
     if (!c) return;
-    const key = [c.systolic, c.diastolic]
+    const key = [c.systolic, c.diastolic, c.pulse]
       .map((id) => (hass.states[id] ? hass.states[id].last_updated : ''))
       .join('|');
     if (first || key !== this._key) {
@@ -520,11 +531,27 @@ export class BloodPressureCard extends BaseElement {
 
   connectedCallback() {
     this._scheduleMidnight();
+    this._observe();
   }
 
   disconnectedCallback() {
     clearTimeout(this._midnight);
     this._midnight = null;
+    if (this._ro) this._ro.disconnect();
+  }
+
+  /** Re-draw the chart when its width changes enough to need another font size. */
+  _observe() {
+    if (typeof ResizeObserver === 'undefined' || !this._els) return;
+    if (!this._ro) {
+      this._ro = new ResizeObserver((entries) => {
+        const fs = chartFont(entries[0].contentRect.width);
+        if (fs === this._fs || !this._els || !this._range) return;
+        this._fs = fs;
+        this._els.chart.innerHTML = this._chart();
+      });
+    }
+    this._ro.observe(this._els.chart);
   }
 
   /**
@@ -539,7 +566,7 @@ export class BloodPressureCard extends BaseElement {
     this._midnight = setTimeout(() => {
       this._scheduleMidnight();
       if (!this._hass || !this._config || !this._range || this._offset !== 0) return;
-      const now = makeRange(this._view, 0, new Date(), this._lang(), this._tz(), this._config.range);
+      const now = this._range0(0);
       if (now.start.getTime() !== this._range.start.getTime()) this._load();
       else this._render(); // today moved: future days are dimmed differently
     }, next - Date.now());
@@ -559,6 +586,27 @@ export class BloodPressureCard extends BaseElement {
   }
 
   /** HA profile time zone: "server" uses HA's configured zone; the default "local" the browser's. */
+  /** First day of a calendar week from the HA profile, 0 = Sunday; Monday when not set. */
+  _firstDay() {
+    const h = this._hass || {};
+    const fw = h.locale && h.locale.first_weekday;
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    if (days.includes(fw)) return days.indexOf(fw);
+    if (fw !== 'language') return 1; // older HA without the setting: Monday, as before
+    try {
+      const loc = new Intl.Locale(this._lang());
+      const info = loc.getWeekInfo ? loc.getWeekInfo() : loc.weekInfo;
+      if (info && info.firstDay) return info.firstDay % 7; // Intl: 1 = Monday ... 7 = Sunday
+    } catch {
+      // unknown locale: fall through
+    }
+    return 1;
+  }
+
+  _range0(offset) {
+    return makeRange(this._view, offset, new Date(), this._lang(), this._tz(), this._config.range, this._firstDay());
+  }
+
   _tz() {
     const h = this._hass || {};
     if (h.locale && h.locale.time_zone === 'server' && h.config && h.config.time_zone) return h.config.time_zone;
@@ -585,7 +633,7 @@ export class BloodPressureCard extends BaseElement {
     const ids = [c.systolic, c.diastolic];
     if (c.pulse) ids.push(c.pulse);
     try {
-      const range = makeRange(this._view, this._offset, new Date(), this._lang(), this._tz(), c.range);
+      const range = this._range0(this._offset);
       this._range = range;
       this._err = null;
       // Pulse is optional: without it the chart still works, just without pulse.
@@ -728,9 +776,10 @@ export class BloodPressureCard extends BaseElement {
     const W = 700;
     const H = Number(this._config.height) || 280;
     const top = 14;
-    const bottom = H - 26;
+    const fs = this._fs || 12; // chart units; grows on narrow cards so text stays readable
+    const bottom = H - (fs + 14);
     const left = 6;
-    const right = W - 40;
+    const right = W - Math.round(fs * 3.3);
     const buckets = this._data ? this._data.buckets : this._range.buckets.map((b) => ({ ...b, n: 0 }));
     const withData = buckets.filter((b) => b.n);
 
@@ -749,7 +798,7 @@ export class BloodPressureCard extends BaseElement {
       const yy = y(v).toFixed(1);
       const major = v % 40 === 0;
       svg += `<line x1="${left}" x2="${right}" y1="${yy}" y2="${yy}" class="grid${major ? ' major' : ''}"/>`;
-      if (major) svg += `<text x="${W - 4}" y="${yy}" class="ylab" text-anchor="end" dominant-baseline="middle">${v}</text>`;
+      if (major) svg += `<text x="${W - 4}" y="${yy}" class="ylab" font-size="${fs}" text-anchor="end" dominant-baseline="middle">${v}</text>`;
     }
     // Reference: the hypertension thresholds of the chosen table (140/90 or 135/85).
     for (const v of THRESHOLDS[this._config.thresholds].g1) {
@@ -767,7 +816,7 @@ export class BloodPressureCard extends BaseElement {
       }
       if (b.label) {
         const fut = b.s.getTime() > now ? ' fut' : '';
-        svg += `<text x="${cx.toFixed(1)}" y="${H - 6}" class="xlab${fut}" text-anchor="middle">${esc(b.label)}</text>`;
+        svg += `<text x="${cx.toFixed(1)}" y="${H - 6}" class="xlab${fut}" font-size="${fs}" text-anchor="middle">${esc(b.label)}</text>`;
       }
       if (b.n) {
         const c = col[b.cat];
@@ -876,6 +925,7 @@ export class BloodPressureCard extends BaseElement {
         </ha-card>`;
       const q = (s) => this.shadowRoot.querySelector(s);
       this._els = {
+        card: q('ha-card'),
         title: q('.title'),
         seg: [...this.shadowRoot.querySelectorAll('[data-view]')],
         prev: q('[data-nav="-1"]'),
@@ -885,8 +935,10 @@ export class BloodPressureCard extends BaseElement {
         live: q('.live'),
         stats: q('.stats'),
       };
+      this._observe();
     }
     const e = this._els;
+    e.card.setAttribute('lang', this._lang());
     e.title.textContent = this._config.title !== undefined ? this._config.title : t.title;
     for (const b of e.seg) {
       const v = b.dataset.view;
@@ -900,6 +952,10 @@ export class BloodPressureCard extends BaseElement {
     // Disabling the focused › would drop focus to the page; hand it to ‹.
     if (atEnd && this.shadowRoot.activeElement === e.next) e.prev.focus();
     e.next.disabled = atEnd;
+    // No history at all here means none further back either (L9).
+    const atStart = Boolean(this._data && this._data.noHistory);
+    if (atStart && this.shadowRoot.activeElement === e.prev) e.chart.focus();
+    e.prev.disabled = atStart;
     e.period.textContent = this._range.label;
     e.chart.setAttribute('aria-label', t.chartHint);
     e.chart.innerHTML = this._chart();
@@ -1052,7 +1108,7 @@ const STYLE = `
   .grid { stroke:var(--divider-color, rgba(127,127,127,.2)); stroke-width:1; opacity:.5; }
   .grid.major { opacity:1; }
   .ref { stroke-width:1; stroke-dasharray:4 4; opacity:.45; }
-  .ylab, .xlab { fill:var(--secondary-text-color); font-size:12px; }
+  .ylab, .xlab { fill:var(--secondary-text-color); }
   .xlab.fut { opacity:.4; }
   .cap { fill:var(--ha-card-background, var(--card-background-color, #1c1c1c)); stroke-width:2.5; }
   .selbg { fill:var(--primary-text-color); opacity:.06; }

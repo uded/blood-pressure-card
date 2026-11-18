@@ -3,3 +3,7 @@ node_modules/
 .claude/
 .serena/
 *.profraw
+CLAUDE.md
+AGENTS.md
+.gitnexus/
+graphify-out/

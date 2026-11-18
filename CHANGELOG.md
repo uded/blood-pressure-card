@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.6
+
+### New
+
+- **Weeks start on your day.** With **Periods** set to **Calendar**, the week now starts on the first weekday chosen in your Home Assistant profile (Sunday, Saturday or Monday, or the one your language uses). Rolling 7 days are unchanged.
+
+### Fixed
+
+- **Readable chart labels on phones.** The dates and mmHg values on the chart shrank with the card and were tiny on a phone. They now stay at a readable size on any screen.
+- **The right pulse.** The pulse next to the highest and lowest readings is now the one measured together with that reading. Before, a pulse from an earlier measurement could show up.
+- **‹ stops where your history ends.** Stepping back through periods stops at the first one the recorder has no data for, instead of going on through empty years.
+- A new pulse value now refreshes the card, like a new blood pressure value does.
+- Screen readers pronounce the card in its own language, Polish included.
+
+### Documentation
+
+- Clearer manual install steps, with how to make browsers pick up a new version.
+- Which Home Assistant versions are needed, and what older ones miss.
+- How readings are paired, described the way the card actually does it.
+- A note on privacy: blood pressure is health data, and how to keep the card out of other people's view.
+
 ## 0.2.5
 
 ### Changed

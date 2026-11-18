@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSeries, buildReadings, aggregate, summarize, makeRange, classify } from '../blood-pressure-card.js';
+import { parseSeries, buildReadings, aggregate, summarize, makeRange, classify, chartFont } from '../blood-pressure-card.js';
 
 const T = (iso) => Date.parse(iso) / 1000;
 const START = Date.parse('2026-11-01T00:00:00Z');
@@ -206,4 +206,30 @@ test('category matches the rounded average that is displayed', () => {
   assert.equal(Math.round(b.sysAvg), 140);
   assert.equal(b.cat, 'g1');
   assert.equal(summarize(readings).cat, 'g1');
+});
+
+test('a calendar week can start on Sunday or Saturday', () => {
+  const now = new Date(2026, 10, 18); // Wednesday
+  assert.equal(makeRange('week', 0, now, 'en', undefined, 'calendar', 0).start.getDate(), 15, 'Sunday 15 Nov');
+  assert.equal(makeRange('week', 0, now, 'en', undefined, 'calendar', 6).start.getDate(), 14, 'Saturday 14 Nov');
+  assert.equal(makeRange('week', 0, now, 'en', undefined, 'calendar').start.getDate(), 16, 'Monday by default');
+  const sun = makeRange('week', 0, new Date(2026, 10, 15), 'en', undefined, 'calendar', 0);
+  assert.equal(sun.start.getDate(), 15, 'on the first day itself the week starts today');
+});
+
+test('a pulse older than the reading is not shown with it', () => {
+  const t0 = START + 3600e3;
+  const sys = { points: [{ t: t0, v: 130 }], events: [t0] };
+  const dia = { points: [{ t: t0 + 2e3, v: 85 }], events: [t0 + 2e3] };
+  const fresh = { points: [{ t: t0 + 1e3, v: 70 }] };
+  const stale = { points: [{ t: t0 - 3 * 3600e3, v: 90 }] };
+  assert.equal(buildReadings(sys, dia, fresh, START, END, 120e3)[0].pulse, 70);
+  assert.equal(buildReadings(sys, dia, stale, START, END, 120e3)[0].pulse, null);
+});
+
+test('chart text keeps at least 12 px on screen however narrow the card', () => {
+  assert.equal(chartFont(700), 12);
+  assert.equal(chartFont(1400), 12, 'never smaller than 12 units');
+  assert.equal(chartFont(350), 24);
+  assert.equal(chartFont(0), 12, 'unknown width');
 });
