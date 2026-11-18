@@ -12,9 +12,10 @@
  * MIT licensed. https://github.com/uded/blood-pressure-card
  */
 
-export const VERSION = '0.2.4';
+export const VERSION = '0.2.5';
 
 const DAY = 86400000;
+const CACHE_SIZE = 12; // periods kept per card; the oldest is dropped first
 
 /**
  * Lower bounds [systolic, diastolic] of each category, worst first; either
@@ -464,6 +465,7 @@ export class BloodPressureCard extends BaseElement {
     this._data = null;
     this._sel = null;
     this._req = 0;
+    this._cache = new Map();
   }
 
   static getConfigElement() {
@@ -494,6 +496,7 @@ export class BloodPressureCard extends BaseElement {
       this.shadowRoot.addEventListener('keydown', (ev) => this._onKey(ev));
     }
     this._data = null;
+    this._cache.clear();
     if (this._hass) this._load();
   }
 
@@ -508,6 +511,7 @@ export class BloodPressureCard extends BaseElement {
       .join('|');
     if (first || key !== this._key) {
       this._key = key;
+      this._cache.clear(); // a new measurement can change any period
       this._load();
     } else if (this._dark() !== wasDark) {
       this._render(); // light or dark theme switched: swap the palette
@@ -583,17 +587,26 @@ export class BloodPressureCard extends BaseElement {
     try {
       const range = makeRange(this._view, this._offset, new Date(), this._lang(), this._tz(), c.range);
       this._range = range;
+      this._err = null;
       // Pulse is optional: without it the chart still works, just without pulse.
       this._missing = [c.systolic, c.diastolic].filter((e) => !this._hass.states[e]);
-      this._loading = true;
-      this._err = null;
-      this._render();
       if (this._missing.length) {
         this._data = null;
         this._loading = false;
         this._render();
         return;
       }
+      // Periods already shown come from the cache until a sensor changes.
+      const ck = [this._view, range.start.getTime(), range.end.getTime(), this._lang(), this._tz()].join('|');
+      const hit = this._cache.get(ck);
+      if (hit) {
+        this._data = hit;
+        this._loading = false;
+        this._render();
+        return;
+      }
+      this._loading = true;
+      this._render();
       // Fetch one pair_window beyond both edges, so a reading that straddles a
       // boundary is paired from complete data and stays in the period it started in.
       const pw = c.pair_window * 1000;
@@ -622,6 +635,8 @@ export class BloodPressureCard extends BaseElement {
         // recorder still has one, so no rows at all means the history is gone.
         noHistory: !(res[c.systolic] && res[c.systolic].length),
       };
+      this._cache.set(ck, this._data);
+      if (this._cache.size > CACHE_SIZE) this._cache.delete(this._cache.keys().next().value);
       this._loading = false;
       this._render();
     } catch (e) {

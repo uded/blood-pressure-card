@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.5
+
+### Changed
+
+- **Faster switching.** Going back to a period you already looked at (7 days, then 30, then 7 again, or ‹ then ›) shows it instantly instead of loading it from Home Assistant again. A new measurement clears this, so the numbers are always current.
+
+### Fixed
+
+- **"History may be purged" only when it really is.** If you keep more than the default 10 days of history, an empty period older than 10 days used to suggest the history was purged. The card now checks whether the recorder still has any data for that period, and otherwise simply says there are no readings.
+
 ## 0.2.4
 
 ### New

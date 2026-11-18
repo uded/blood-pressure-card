@@ -187,6 +187,43 @@ test('an old period with history around it but no readings just says no readings
   assert.doesNotMatch(text(el), /purged/);
 });
 
+const historyCalls = (hass) => hass.calls.filter((m) => m.type === 'history/history_during_period').length;
+const click = async (el, sel) => {
+  el.shadowRoot.querySelector(sel).click();
+  await settle();
+};
+
+test('switching back to a period already shown does not ask HA again', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const lu = (...a) => new Date(...a).getTime() / 1000;
+  const hass = fakeHass({
+    history: { 'sensor.sys': [{ s: '128', lu: lu(2026, 10, 17, 8) }], 'sensor.dia': [{ s: '82', lu: lu(2026, 10, 17, 8) }] },
+  });
+  const el = await mount({ ...BASE, default_view: 'week' }, hass);
+  await click(el, '[data-view="month"]');
+  await click(el, '[data-view="week"]');
+  await click(el, '[data-nav="-1"]');
+  await click(el, '[data-nav="1"]');
+  assert.equal(historyCalls(hass), 3, 'week, month, previous week; the rest come from the cache');
+  assert.match(text(el), /128\/82/);
+});
+
+test('a new measurement empties the cache, so revisited periods are fresh', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const lu = (...a) => new Date(...a).getTime() / 1000;
+  const history = { 'sensor.sys': [{ s: '128', lu: lu(2026, 10, 17, 8) }], 'sensor.dia': [{ s: '82', lu: lu(2026, 10, 17, 8) }] };
+  const hass = fakeHass({ history });
+  const el = await mount({ ...BASE, default_view: 'week' }, hass);
+  await click(el, '[data-view="month"]');
+  history['sensor.sys'].push({ s: '150', lu: lu(2026, 10, 18, 9) });
+  history['sensor.dia'].push({ s: '95', lu: lu(2026, 10, 18, 9) });
+  el.hass = { ...hass, states: { 'sensor.sys': { last_updated: 'new' }, 'sensor.dia': { last_updated: 'new' } } };
+  await settle();
+  await click(el, '[data-view="week"]');
+  assert.equal(historyCalls(hass), 4, 'week, month, month reload, week refetch');
+  assert.match(text(el), /150\/95/);
+});
+
 for (const pair_window of ['2m', -5, 0, Infinity]) {
   test(`setConfig rejects pair_window ${String(pair_window)}`, async () => {
     const el = document.createElement('blood-pressure-card');
