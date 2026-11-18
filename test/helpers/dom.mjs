@@ -3,12 +3,12 @@
 import { Window } from 'happy-dom';
 
 const win = new Window({ url: 'http://localhost/' });
-for (const key of ['window', 'document', 'HTMLElement', 'customElements', 'Event']) {
+for (const key of ['window', 'document', 'HTMLElement', 'customElements', 'Event', 'CustomEvent']) {
   globalThis[key] = key === 'window' ? win : win[key];
 }
 
 const mod = await import('../../blood-pressure-card.js');
-export const { BloodPressureCard } = mod;
+export const { BloodPressureCard, suggestCard } = mod;
 
 const T = (iso) => Date.parse(iso) / 1000;
 

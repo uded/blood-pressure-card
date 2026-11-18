@@ -264,6 +264,27 @@ export function normalizeConfig(config) {
   return c;
 }
 
+/**
+ * Card picker suggestion for an entity: offered when a systolic or diastolic
+ * sensor has its partner (same id with the other word), plus a pulse sensor
+ * sharing the id prefix if there is one.
+ */
+export function suggestCard(hass, entityId) {
+  const states = (hass && hass.states) || {};
+  const m = /^(sensor\..*?)(systolic|diastolic)(.*)$/.exec(entityId || '');
+  if (!m || !states[entityId]) return null;
+  const other = `${m[1]}${m[2] === 'systolic' ? 'diastolic' : 'systolic'}${m[3]}`;
+  if (!states[other]) return null;
+  const config = {
+    type: 'custom:blood-pressure-card',
+    systolic: m[2] === 'systolic' ? entityId : other,
+    diastolic: m[2] === 'diastolic' ? entityId : other,
+  };
+  const pulse = Object.keys(states).find((id) => id.startsWith(m[1]) && /pulse|heart_rate/.test(id.slice(m[1].length)));
+  if (pulse) config.pulse = pulse;
+  return { label: 'Blood Pressure Card', config };
+}
+
 /** Period boundaries + buckets for a view ('week' | 'month' | 'year'). */
 export function makeRange(view, offset, now, lang) {
   const buckets = [];
@@ -330,11 +351,22 @@ export class BloodPressureCard extends BaseElement {
     this._req = 0;
   }
 
+  static getConfigElement() {
+    return document.createElement('blood-pressure-card-editor');
+  }
+
   static getStubConfig(hass) {
-    const ids = Object.keys((hass && hass.states) || {});
+    // Prefer a matched pair (same source), the same pairing the card picker suggests.
+    for (const id of Object.keys((hass && hass.states) || {})) {
+      const s = suggestCard(hass, id);
+      if (s) {
+        const { type, ...config } = s.config;
+        return config;
+      }
+    }
     return {
-      systolic: ids.find((i) => /systolic/.test(i)) || 'sensor.withings_systolic_blood_pressure',
-      diastolic: ids.find((i) => /diastolic/.test(i)) || 'sensor.withings_diastolic_blood_pressure',
+      systolic: 'sensor.withings_systolic_blood_pressure',
+      diastolic: 'sensor.withings_diastolic_blood_pressure',
     };
   }
 
@@ -602,6 +634,100 @@ export class BloodPressureCard extends BaseElement {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Visual editor                                                      */
+/* ------------------------------------------------------------------ */
+
+const sensor = { entity: { domain: 'sensor' } };
+const EDITOR_SCHEMA = [
+  { name: 'systolic', required: true, selector: sensor },
+  { name: 'diastolic', required: true, selector: sensor },
+  { name: 'pulse', selector: sensor },
+  { name: 'title', selector: { text: {} } },
+  {
+    type: 'grid',
+    name: '',
+    schema: [
+      {
+        name: 'default_view',
+        selector: { select: { mode: 'dropdown', options: VIEWS } },
+      },
+      {
+        name: 'language',
+        selector: { select: { mode: 'dropdown', options: [{ value: 'en', label: 'English' }, { value: 'pl', label: 'Polski' }] } },
+      },
+      { name: 'pair_window', selector: { number: { min: 1, max: 3600, mode: 'box', unit_of_measurement: 's' } } },
+      { name: 'height', selector: { number: { min: 120, max: 2000, mode: 'box' } } },
+    ],
+  },
+  { name: 'show_stats', selector: { boolean: {} } },
+];
+
+const EDITOR_LABELS = {
+  en: {
+    systolic: 'Systolic sensor',
+    diastolic: 'Diastolic sensor',
+    pulse: 'Pulse sensor (optional)',
+    title: 'Title (leave empty to hide)',
+    default_view: 'Default view',
+    language: 'Language (default: HA language)',
+    pair_window: 'Pairing window',
+    height: 'Chart height',
+    show_stats: 'Show averages and highest/lowest readings',
+  },
+  pl: {
+    systolic: 'Czujnik skurczowego',
+    diastolic: 'Czujnik rozkurczowego',
+    pulse: 'Czujnik tętna (opcjonalny)',
+    title: 'Tytuł (puste ukrywa tytuł)',
+    default_view: 'Widok domyślny',
+    language: 'Język (domyślnie język HA)',
+    pair_window: 'Okno parowania',
+    height: 'Wysokość wykresu',
+    show_stats: 'Pokaż średnie oraz najwyższe i najniższe pomiary',
+  },
+};
+
+export class BloodPressureCardEditor extends BaseElement {
+  setConfig(config) {
+    this._config = config;
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._form) this._form.hass = hass;
+  }
+
+  _render() {
+    if (!this._form) {
+      this.attachShadow({ mode: 'open' });
+      this._form = document.createElement('ha-form');
+      this._form.schema = EDITOR_SCHEMA;
+      this._form.computeLabel = (s) => {
+        const lang = (this._hass && this._hass.locale && this._hass.locale.language) || 'en';
+        return (lang.startsWith('pl') ? EDITOR_LABELS.pl : EDITOR_LABELS.en)[s.name] || s.name;
+      };
+      this._form.addEventListener('value-changed', (ev) => this._changed(ev));
+      this.shadowRoot.appendChild(this._form);
+    }
+    this._form.hass = this._hass;
+    this._form.data = { ...DEFAULTS, ...this._config };
+  }
+
+  _changed(ev) {
+    ev.stopPropagation();
+    const config = { ...this._config };
+    for (const [k, v] of Object.entries(ev.detail.value)) {
+      // An empty title is meaningful (it hides the title); other empty fields are unset.
+      if (v === undefined || (v === '' && k !== 'title')) delete config[k];
+      else config[k] = v;
+    }
+    this._config = config;
+    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
+  }
+}
+
 const STYLE = `
   :host { display:block; }
   ha-card { display:block; padding:16px; }
@@ -647,13 +773,15 @@ const STYLE = `
 
 if (typeof customElements !== 'undefined' && !customElements.get('blood-pressure-card')) {
   customElements.define('blood-pressure-card', BloodPressureCard);
+  customElements.define('blood-pressure-card-editor', BloodPressureCardEditor);
   window.customCards = window.customCards || [];
   window.customCards.push({
     type: 'blood-pressure-card',
     name: 'Blood Pressure Card',
     description: 'Withings-style systolic/diastolic range chart per day/month.',
-    preview: false,
+    preview: true,
     documentationURL: 'https://github.com/uded/blood-pressure-card',
+    getEntitySuggestion: suggestCard,
   });
   console.info(`%c BLOOD-PRESSURE-CARD %c ${VERSION} `, 'background:#E53935;color:#fff', 'background:#333;color:#fff');
 }

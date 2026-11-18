@@ -13,6 +13,8 @@ A Home Assistant Lovelace card that charts blood pressure the way the Withings a
 - Tap a day to see its range, average and category
 - Period averages, plus the highest and lowest readings with their paired value, date and pulse
 - Works with any pair of systolic/diastolic sensors: Withings, the Apple Health sensors from the iOS Companion App, Health Connect, a template sensor…
+- Visual editor with entity pickers; `colors` stays YAML-only
+- Suggested in the card picker when you pick a systolic or diastolic sensor (newer HA versions), with its partner and pulse sensor filled in
 - Follows the HA theme (light and dark); English and Polish UI
 - One plain JS file, no build step and no dependencies
 
