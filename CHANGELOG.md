@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.3
+
+### New
+
+- **Last 7, 30 and 365 days.** The card now shows rolling periods that end today, so the chart and the averages always cover a full stretch of recent readings. Before, on the 1st of the month the month view showed a single day. The buttons read **7 days / 30 days / 365 days**, and ‹ › steps back one whole period at a time.
+- The 365-day view has one bar per month. The first and last months are partial; tap a bar to see its exact dates.
+
+### Changed
+
+- **Rolling periods are the new default.** If you prefer this week, this month and this year, set **Periods** to **Calendar** in the card editor (or `range: calendar` in YAML).
+
 ## 0.2.2
 
 ### New

@@ -2,7 +2,31 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mount, fakeHass, text, settle } from './helpers/dom.mjs';
 
-const BASE = { systolic: 'sensor.sys', diastolic: 'sensor.dia' };
+// Most tests here check calendar boundaries (1 Nov, Monday); rolling has its own tests.
+const BASE = { systolic: 'sensor.sys', diastolic: 'sensor.dia', range: 'calendar' };
+const ROLLING = { systolic: 'sensor.sys', diastolic: 'sensor.dia' };
+
+test('rolling is the default: last 30 days, with day-count buttons', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const lu = (...a) => new Date(...a).getTime() / 1000;
+  const hass = fakeHass({
+    history: { 'sensor.sys': [{ s: '131', lu: lu(2026, 9, 25, 8) }], 'sensor.dia': [{ s: '84', lu: lu(2026, 9, 25, 8, 0, 4) }] },
+  });
+  const el = await mount(ROLLING, hass);
+  assert.match(text(el), /7 days\s*30 days\s*365 days/);
+  assert.match(text(el), /Oct 20 – Nov 18/);
+  assert.match(text(el), /131\/84/, 'a reading from 25 Oct is inside the last 30 days');
+});
+
+test('rolling window moves forward every midnight', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: new Date(2026, 10, 18, 23, 59, 30) });
+  const hass = fakeHass({ states: { 'sensor.sys': {}, 'sensor.dia': {} } });
+  const el = await mount({ ...ROLLING, default_view: 'week' }, hass);
+  assert.match(text(el), /Nov 12 – Nov 18/);
+  t.mock.timers.tick(60_000);
+  await settle();
+  assert.match(text(el), /Nov 13 – Nov 19/);
+});
 
 test('harness: setConfig attaches a shadow root', async () => {
   const el = await mount(BASE, null);

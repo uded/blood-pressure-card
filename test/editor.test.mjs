@@ -74,6 +74,13 @@ test('editor renders an ha-form with the config and an entity picker for systoli
   assert.deepEqual(sys.selector, { entity: { domain: 'sensor' } });
 });
 
+test('editor offers rolling and calendar periods, rolling by default', () => {
+  const form = editor().shadowRoot.querySelector('ha-form');
+  const f = form.schema.flatMap((s) => s.schema || [s]).find((s) => s.name === 'range');
+  assert.deepEqual(f.selector.select.options.map((o) => o.value), ['rolling', 'calendar']);
+  assert.equal(form.data.range, 'rolling');
+});
+
 test('editor offers office and home thresholds', () => {
   const form = editor().shadowRoot.querySelector('ha-form');
   const f = form.schema.flatMap((s) => s.schema || [s]).find((s) => s.name === 'thresholds');

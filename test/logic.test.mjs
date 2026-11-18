@@ -109,6 +109,47 @@ test('zoned days follow DST: 29 Mar 2026 in Warsaw is 23 hours', () => {
   assert.equal(sunday.e.getTime() - sunday.s.getTime(), 23 * 3600e3);
 });
 
+const W = 'Europe/Warsaw';
+const NOW = new Date('2026-11-18T12:00:00+01:00'); // Wednesday
+const at = (iso) => Date.parse(iso);
+
+test('rolling week: the last 7 days including today', () => {
+  const r = makeRange('week', 0, NOW, 'en', W, 'rolling');
+  assert.equal(r.start.getTime(), at('2026-11-12T00:00:00+01:00'));
+  assert.equal(r.end.getTime(), at('2026-11-19T00:00:00+01:00'));
+  assert.equal(r.buckets.length, 7);
+  assert.equal(r.buckets[6].s.getTime(), at('2026-11-18T00:00:00+01:00'));
+  assert.equal(r.label, 'Nov 12 – Nov 18');
+});
+
+test('rolling 30 days, and one step back', () => {
+  const r = makeRange('month', 0, NOW, 'en', W, 'rolling');
+  assert.equal(r.buckets.length, 30);
+  assert.equal(r.start.getTime(), at('2026-10-20T00:00:00+02:00'));
+  const prev = makeRange('month', -1, NOW, 'en', W, 'rolling');
+  assert.equal(prev.end.getTime(), r.start.getTime());
+  assert.equal(prev.buckets.length, 30);
+});
+
+test('rolling 365 days: monthly bars, partial at both ends', () => {
+  const r = makeRange('year', 0, NOW, 'en', W, 'rolling');
+  assert.equal(r.start.getTime(), at('2025-11-19T00:00:00+01:00'));
+  assert.equal(r.end.getTime(), at('2026-11-19T00:00:00+01:00'));
+  assert.equal(r.buckets.length, 13);
+  assert.equal(r.buckets[0].e.getTime(), at('2025-12-01T00:00:00+01:00'));
+  assert.equal(r.buckets[12].s.getTime(), at('2026-11-01T00:00:00+01:00'));
+  assert.match(r.buckets[0].title, /^Nov 19\s–\s30, 2025$/); // Intl uses thin spaces around the dash
+  assert.equal(r.buckets[1].title, 'December 2025');
+  assert.match(r.label, /2025.*2026/);
+  for (let i = 1; i < r.buckets.length; i++) assert.equal(r.buckets[i].s.getTime(), r.buckets[i - 1].e.getTime());
+});
+
+test('calendar mode is unchanged', () => {
+  const r = makeRange('month', 0, NOW, 'en', W, 'calendar');
+  assert.equal(r.start.getTime(), at('2026-11-01T00:00:00+01:00'));
+  assert.equal(r.label, 'November 2026');
+});
+
 test('ESH classification', () => {
   assert.equal(classify(118, 76), 'o');
   assert.equal(classify(125, 79), 'n');

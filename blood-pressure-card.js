@@ -12,7 +12,7 @@
  * MIT licensed. https://github.com/uded/blood-pressure-card
  */
 
-export const VERSION = '0.2.2';
+export const VERSION = '0.2.3';
 
 const DAY = 86400000;
 
@@ -62,6 +62,7 @@ const I18N = {
     loading: 'Loading…',
     error: 'Could not load history',
     notFound: 'Entity not found',
+    rolling: { week: '7 days', month: '30 days', year: '365 days' },
     basis: { office: 'ESH office thresholds', home: 'ESH home thresholds' },
     meas: (n) => `${n} ${n === 1 ? 'reading' : 'readings'}`,
     cat: {
@@ -91,6 +92,7 @@ const I18N = {
     loading: 'Ładowanie…',
     error: 'Nie udało się pobrać historii',
     notFound: 'Nie znaleziono encji',
+    rolling: { week: '7 dni', month: '30 dni', year: '365 dni' },
     basis: { office: 'progi gabinetowe ESH', home: 'progi domowe ESH' },
     meas: (n) => {
       if (n === 1) return '1 pomiar';
@@ -228,7 +230,9 @@ const DEFAULTS = {
   height: 280,
   show_stats: true,
   thresholds: 'office',
+  range: 'rolling',
 };
+const RANGES = ['rolling', 'calendar'];
 
 /**
  * Validate a card config and fill in defaults. Throws a readable error, which
@@ -251,6 +255,7 @@ export function normalizeConfig(config) {
   }
   if (c.systolic === c.diastolic) fail('"systolic" and "diastolic" must be different entities');
 
+  if (!RANGES.includes(c.range)) fail(`"range" must be one of ${RANGES.join(', ')}, got ${JSON.stringify(c.range)}`);
   if (!(c.thresholds in THRESHOLDS)) {
     fail(`"thresholds" must be one of ${Object.keys(THRESHOLDS).join(', ')}, got ${JSON.stringify(c.thresholds)}`);
   }
@@ -338,14 +343,57 @@ function midnight(y, m, d, tz) {
 }
 
 /**
+ * Rolling windows ending today: the last 7 or 30 days (one bar per day), or
+ * the last 365 days (one bar per month, the oldest and newest partial).
+ * `offset` steps back by whole windows.
+ */
+function rollingRange(view, offset, today, fmt, day) {
+  const buckets = [];
+  const dm = fmt({ day: 'numeric', month: 'short' });
+  if (view === 'year') {
+    const start = day(today.y - 1 + offset, today.m, today.d + 1);
+    const end = day(today.y + offset, today.m, today.d + 1);
+    const mf = fmt({ month: 'narrow' });
+    const full = fmt({ month: 'long', year: 'numeric' });
+    const part = fmt({ day: 'numeric', month: 'short', year: 'numeric' });
+    const first = dateIn(start.getTime(), fmt({}).resolvedOptions().timeZone);
+    for (let i = 0; ; i++) {
+      const s = i === 0 ? start : day(first.y, first.m + i, 1);
+      if (s >= end) break;
+      const next = day(first.y, first.m + i + 1, 1);
+      const e = next < end ? next : end;
+      const whole = i > 0 && e.getTime() === next.getTime();
+      const title = whole ? full.format(s) : part.formatRange(s, new Date(e.getTime() - 1));
+      buckets.push({ s, e, label: mf.format(s), title });
+    }
+    return { start, end, buckets, label: `${fmt({ month: 'short', year: 'numeric' }).format(start)} – ${fmt({ month: 'short', year: 'numeric' }).format(new Date(end.getTime() - 1))}` };
+  }
+  const n = view === 'week' ? 7 : 30;
+  const first = today.d - (n - 1) + n * offset;
+  const start = day(today.y, today.m, first);
+  const end = day(today.y, today.m, first + n);
+  const wd = fmt({ weekday: 'narrow' });
+  const dn = fmt({ day: 'numeric' });
+  const tf = fmt({ weekday: 'short', day: 'numeric', month: 'short' });
+  for (let i = 0; i < n; i++) {
+    const s = day(today.y, today.m, first + i);
+    // Week: weekday letters. 30 days: a date every 7th bar, counted back from the newest.
+    const label = n === 7 ? wd.format(s) : (n - 1 - i) % 7 === 0 ? dn.format(s) : '';
+    buckets.push({ s, e: day(today.y, today.m, first + i + 1), label, title: tf.format(s) });
+  }
+  return { start, end, buckets, label: `${dm.format(start)} – ${dm.format(new Date(end.getTime() - 1))}` };
+}
+
+/**
  * Period boundaries + buckets for a view ('week' | 'month' | 'year'). Days are
  * calendar days in `tz` (default: the browser's zone), so DST days are 23 or 25 h.
  */
-export function makeRange(view, offset, now, lang, tz) {
+export function makeRange(view, offset, now, lang, tz, mode = 'calendar') {
   const zone = tz || new Intl.DateTimeFormat().resolvedOptions().timeZone;
   const fmt = (o) => new Intl.DateTimeFormat(lang, { ...o, timeZone: zone });
   const day = (y, m, d) => midnight(y, m, d, zone);
   const today = dateIn(now.getTime(), zone);
+  if (mode === 'rolling') return rollingRange(view, offset, today, fmt, day);
   const buckets = [];
   let start;
   let end;
@@ -474,7 +522,7 @@ export class BloodPressureCard extends BaseElement {
     this._midnight = setTimeout(() => {
       this._scheduleMidnight();
       if (!this._hass || !this._config || !this._range || this._offset !== 0) return;
-      const now = makeRange(this._view, 0, new Date(), this._lang(), this._tz());
+      const now = makeRange(this._view, 0, new Date(), this._lang(), this._tz(), this._config.range);
       if (now.start.getTime() !== this._range.start.getTime()) this._load();
       else this._render(); // today moved: future days are dimmed differently
     }, next - Date.now());
@@ -515,7 +563,7 @@ export class BloodPressureCard extends BaseElement {
     const ids = [c.systolic, c.diastolic];
     if (c.pulse) ids.push(c.pulse);
     try {
-      const range = makeRange(this._view, this._offset, new Date(), this._lang(), this._tz());
+      const range = makeRange(this._view, this._offset, new Date(), this._lang(), this._tz(), c.range);
       this._range = range;
       // Pulse is optional: without it the chart still works, just without pulse.
       this._missing = [c.systolic, c.diastolic].filter((e) => !this._hass.states[e]);
@@ -744,7 +792,10 @@ export class BloodPressureCard extends BaseElement {
     }
     const title = this._config.title !== undefined ? this._config.title : t.title;
     const seg = ['week', 'month', 'year']
-      .map((v) => `<button data-view="${v}" class="${v === this._view ? 'on' : ''}">${esc(t[v])}</button>`)
+      .map((v) => {
+        const name = this._config.range === 'rolling' ? t.rolling[v] : t[v];
+        return `<button data-view="${v}" class="${v === this._view ? 'on' : ''}">${esc(name)}</button>`;
+      })
       .join('');
     this.shadowRoot.innerHTML = `
       <style>${STYLE}</style>
@@ -775,6 +826,18 @@ const EDITOR_SCHEMA = [
   { name: 'diastolic', required: true, selector: sensor },
   { name: 'pulse', selector: sensor },
   { name: 'title', selector: { text: {} } },
+  {
+    name: 'range',
+    selector: {
+      select: {
+        mode: 'list',
+        options: [
+          { value: 'rolling', label: 'Rolling: last 7, 30 or 365 days' },
+          { value: 'calendar', label: 'Calendar: this week, month or year' },
+        ],
+      },
+    },
+  },
   {
     name: 'thresholds',
     selector: {
@@ -813,6 +876,7 @@ const EDITOR_LABELS = {
     pulse: 'Pulse sensor (optional)',
     title: 'Title (leave empty to hide)',
     thresholds: 'Category thresholds',
+    range: 'Periods',
     default_view: 'Default view',
     language: 'Language (default: HA language)',
     pair_window: 'Pairing window',
@@ -825,6 +889,7 @@ const EDITOR_LABELS = {
     pulse: 'Czujnik tętna (opcjonalny)',
     title: 'Tytuł (puste ukrywa tytuł)',
     thresholds: 'Progi kategorii',
+    range: 'Okresy',
     default_view: 'Widok domyślny',
     language: 'Język (domyślnie język HA)',
     pair_window: 'Okno parowania',

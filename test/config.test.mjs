@@ -23,7 +23,13 @@ test('thresholds defaults to office and accepts home', () => {
   assert.equal(normalizeConfig({ ...BASE, thresholds: 'home' }).thresholds, 'home');
 });
 
+test('range defaults to rolling and accepts calendar', () => {
+  assert.equal(normalizeConfig(BASE).range, 'rolling');
+  assert.equal(normalizeConfig({ ...BASE, range: 'calendar' }).range, 'calendar');
+});
+
 const rejects = [
+  [{ range: 'fiscal' }, /range/],
   [{ thresholds: 'clinic' }, /thresholds/],
   [{ default_view: 'day' }, /default_view/],
   [{ height: 'tall' }, /height/],

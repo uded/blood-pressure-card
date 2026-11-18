@@ -8,7 +8,7 @@ A Home Assistant Lovelace card that charts blood pressure the way the Withings a
   <img src="docs/week-pl.png" width="32%" alt="Week view, Polish">
 </p>
 
-- Week / Month / Year views with ‹ › navigation to earlier periods
+- Last 7 / 30 / 365 days (or calendar week / month / year) with ‹ › navigation to earlier periods
 - Candles coloured by the ESH 2023 category of that day's average
 - Tap a day to see its range, average and category
 - Period averages, plus the highest and lowest readings with their paired value, date and pulse
@@ -52,6 +52,7 @@ pulse: sensor.withings_heart_pulse   # optional, shown next to highest/lowest
 | `default_view` | `month` | `week`, `month` or `year` |
 | `height` | `280` | Chart height in viewBox units (width is 700) |
 | `show_stats` | `true` | Show the averages and the highest/lowest lists |
+| `range` | `rolling` | `rolling`: the last 7, 30 or 365 days up to today. `calendar`: this week (from Monday), this month or this year |
 | `thresholds` | `office` | `office` (ESH office table, hypertension from 140/90) or `home` (ESH home threshold, hypertension from 135/85) |
 | `pair_window` | `120` | Seconds (1 to 3600) within which systolic and diastolic changes count as one reading |
 | `language` | HA language | `en` or `pl` |
