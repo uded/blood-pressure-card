@@ -53,6 +53,7 @@ const I18N = {
     noneOld: 'No readings — history may be purged. Check recorder purge_keep_days.',
     loading: 'Loading…',
     error: 'Could not load history',
+    notFound: 'Entity not found',
     meas: (n) => `${n} ${n === 1 ? 'reading' : 'readings'}`,
     cat: {
       o: 'Optimal',
@@ -80,6 +81,7 @@ const I18N = {
     noneOld: 'Brak pomiarów — historia mogła zostać wyczyszczona. Sprawdź recorder purge_keep_days.',
     loading: 'Ładowanie…',
     error: 'Nie udało się pobrać historii',
+    notFound: 'Nie znaleziono encji',
     meas: (n) => {
       if (n === 1) return '1 pomiar';
       const d = n % 10;
@@ -115,7 +117,8 @@ export function parseSeries(list, startMs = -Infinity) {
   let last = null;
   (list || []).forEach((e) => {
     const t = e.lu !== undefined ? e.lu * 1000 : Date.parse(e.last_updated || e.last_changed);
-    const v = parseFloat(e.s !== undefined ? e.s : e.state);
+    const raw = String(e.s !== undefined ? e.s : e.state).trim();
+    const v = raw === '' ? NaN : Number(raw);
     if (!Number.isFinite(t) || !Number.isFinite(v)) return;
     points.push({ t, v });
     if (last === null ? t > startMs + 1000 : v !== last) events.push(t);
@@ -132,6 +135,9 @@ function valueAt(points, t) {
   }
   return v;
 }
+
+// Outside these ranges a value is a sensor glitch, not a measurement.
+const plausible = (sys, dia) => sys >= 50 && sys <= 300 && dia >= 20 && dia <= 200 && dia < sys;
 
 /**
  * Pair systolic/diastolic changes into readings. Changes closer than
@@ -152,7 +158,7 @@ export function buildReadings(sys, dia, pulse, startMs, endMs, windowMs) {
     const te = Math.min(t0 + windowMs, next - 1);
     const s = valueAt(sys.points, te);
     const d = valueAt(dia.points, te);
-    if (s === null || d === null) return;
+    if (s === null || d === null || !plausible(s, d)) return;
     const p = pulse ? valueAt(pulse.points, te) : null;
     out.push({ t: t0, sys: s, dia: d, pulse: p });
   });
@@ -175,7 +181,8 @@ export function aggregate(readings, buckets) {
     b.diaMax = Math.max(...it.map((r) => r.dia));
     b.sysAvg = it.reduce((a, r) => a + r.sys, 0) / it.length;
     b.diaAvg = it.reduce((a, r) => a + r.dia, 0) / it.length;
-    b.cat = classify(b.sysAvg, b.diaAvg);
+    // Classify what is displayed (rounded), so "140" never reads "High normal".
+    b.cat = classify(Math.round(b.sysAvg), Math.round(b.diaAvg));
   }
   return rows;
 }
@@ -190,12 +197,71 @@ export function summarize(readings) {
     n: readings.length,
     sysAvg,
     diaAvg,
-    cat: classify(sysAvg, diaAvg),
+    cat: classify(Math.round(sysAvg), Math.round(diaAvg)),
     sysHigh: by('sys', 1),
     diaHigh: by('dia', 1),
     sysLow: by('sys', -1),
     diaLow: by('dia', -1),
   };
+}
+
+const VIEWS = ['week', 'month', 'year'];
+const ENTITY_ID = /^[a-z0-9_]+\.[a-z0-9_]+$/;
+// Only plain colour syntax, so a value can never break out of an attribute.
+const CSS_COLOUR = /^(#[0-9a-f]{3,8}|(rgb|rgba|hsl|hsla)\([0-9.,%\s/]+\)|var\(--[a-z0-9-]+\)|[a-z]+)$/i;
+
+const DEFAULTS = {
+  default_view: 'month',
+  pair_window: 120,
+  height: 280,
+  show_stats: true,
+};
+
+/**
+ * Validate a card config and fill in defaults. Throws a readable error, which
+ * Home Assistant shows as an error card, instead of rendering wrong readings.
+ */
+export function normalizeConfig(config) {
+  const fail = (msg) => {
+    throw new Error(`blood-pressure-card: ${msg}`);
+  };
+  if (!config || !config.systolic || !config.diastolic) fail('"systolic" and "diastolic" are required');
+  const c = { ...DEFAULTS, ...config };
+  const pw = Number(c.pair_window);
+  if (typeof c.pair_window === 'boolean' || !Number.isFinite(pw) || pw <= 0 || pw > 3600) {
+    fail(`"pair_window" must be a number of seconds between 1 and 3600, got ${JSON.stringify(c.pair_window)}`);
+  }
+  c.pair_window = pw;
+
+  for (const key of ['systolic', 'diastolic', 'pulse']) {
+    if (c[key] !== undefined && !ENTITY_ID.test(c[key])) fail(`"${key}" must be an entity id like sensor.name, got ${JSON.stringify(c[key])}`);
+  }
+  if (c.systolic === c.diastolic) fail('"systolic" and "diastolic" must be different entities');
+
+  if (!VIEWS.includes(c.default_view)) fail(`"default_view" must be one of ${VIEWS.join(', ')}, got ${JSON.stringify(c.default_view)}`);
+
+  const h = Number(c.height);
+  if (typeof c.height === 'boolean' || !Number.isFinite(h) || h < 120 || h > 2000) {
+    fail(`"height" must be a number between 120 and 2000, got ${JSON.stringify(c.height)}`);
+  }
+  c.height = h;
+
+  if (c.language !== undefined) {
+    try {
+      if (!Intl.DateTimeFormat.supportedLocalesOf(c.language).length) throw new RangeError();
+    } catch {
+      fail(`"language" must be a language code such as en or pl, got ${JSON.stringify(c.language)}`);
+    }
+  }
+
+  if (c.colors !== undefined) {
+    if (typeof c.colors !== 'object' || c.colors === null) fail('"colors" must be a map of category to colour');
+    for (const [k, v] of Object.entries(c.colors)) {
+      if (!(k in DEFAULT_COLORS)) fail(`"colors" keys must be ${Object.keys(DEFAULT_COLORS).join(', ')}, got ${JSON.stringify(k)}`);
+      if (typeof v !== 'string' || !CSS_COLOUR.test(v.trim())) fail(`"colors.${k}" is not a CSS colour: ${JSON.stringify(v)}`);
+    }
+  }
+  return c;
 }
 
 /** Period boundaries + buckets for a view ('week' | 'month' | 'year'). */
@@ -273,16 +339,7 @@ export class BloodPressureCard extends BaseElement {
   }
 
   setConfig(config) {
-    if (!config || !config.systolic || !config.diastolic) {
-      throw new Error('blood-pressure-card: "systolic" and "diastolic" are required');
-    }
-    this._config = {
-      default_view: 'month',
-      pair_window: 120,
-      height: 280,
-      show_stats: true,
-      ...config,
-    };
+    this._config = normalizeConfig(config);
     if (!this._view) this._view = this._config.default_view;
     if (!this.shadowRoot) {
       this.attachShadow({ mode: 'open' });
@@ -331,17 +388,30 @@ export class BloodPressureCard extends BaseElement {
     if (!this._hass || !this._config) return;
     const id = ++this._req;
     const c = this._config;
-    const range = makeRange(this._view, this._offset, new Date(), this._lang());
-    this._range = range;
-    this._loading = true;
-    this._render();
     const ids = [c.systolic, c.diastolic];
     if (c.pulse) ids.push(c.pulse);
     try {
+      const range = makeRange(this._view, this._offset, new Date(), this._lang());
+      this._range = range;
+      // Pulse is optional: without it the chart still works, just without pulse.
+      this._missing = [c.systolic, c.diastolic].filter((e) => !this._hass.states[e]);
+      this._loading = true;
+      this._err = null;
+      this._render();
+      if (this._missing.length) {
+        this._data = null;
+        this._loading = false;
+        this._render();
+        return;
+      }
+      // Fetch one pair_window beyond both edges, so a reading that straddles a
+      // boundary is paired from complete data and stays in the period it started in.
+      const pw = c.pair_window * 1000;
+      const fetchStart = range.start.getTime() - pw;
       const res = await this._hass.callWS({
         type: 'history/history_during_period',
-        start_time: range.start.toISOString(),
-        end_time: range.end.toISOString(),
+        start_time: new Date(fetchStart).toISOString(),
+        end_time: new Date(range.end.getTime() + pw).toISOString(),
         entity_ids: ids,
         minimal_response: true,
         no_attributes: true,
@@ -349,27 +419,21 @@ export class BloodPressureCard extends BaseElement {
         include_start_time_state: true,
       });
       if (id !== this._req) return;
-      const t0 = range.start.getTime();
-      const sys = parseSeries(res[c.systolic], t0);
-      const dia = parseSeries(res[c.diastolic], t0);
-      const pulse = c.pulse ? parseSeries(res[c.pulse], t0) : null;
-      const readings = buildReadings(
-        sys,
-        dia,
-        pulse,
-        range.start.getTime(),
-        range.end.getTime(),
-        c.pair_window * 1000,
-      );
+      const sys = parseSeries(res[c.systolic], fetchStart);
+      const dia = parseSeries(res[c.diastolic], fetchStart);
+      const pulse = c.pulse ? parseSeries(res[c.pulse], fetchStart) : null;
+      const readings = buildReadings(sys, dia, pulse, range.start.getTime(), range.end.getTime(), pw);
       this._data = { buckets: aggregate(readings, range.buckets), summary: summarize(readings) };
-      this._err = null;
+      this._loading = false;
+      this._render();
     } catch (e) {
       if (id !== this._req) return;
+      console.error('blood-pressure-card:', e);
       this._data = null;
-      this._err = (e && e.message) || String(e);
+      this._loading = false;
+      this._err = (e && (e.message || e.code)) || String(e);
+      this._render();
     }
-    this._loading = false;
-    this._render();
   }
 
   _onClick(ev) {
@@ -459,7 +523,8 @@ export class BloodPressureCard extends BaseElement {
     });
 
     let overlay = '';
-    if (this._loading && !this._data) overlay = t.loading;
+    if (this._missing && this._missing.length) overlay = `${t.notFound}: ${this._missing.join(', ')}`;
+    else if (this._loading && !this._data) overlay = t.loading;
     else if (this._err) overlay = `${t.error}: ${esc(this._err)}`;
     else if (this._data && !withData.length) {
       overlay = this._range.start.getTime() < now - 10 * DAY ? t.noneOld : t.none;
@@ -506,8 +571,14 @@ export class BloodPressureCard extends BaseElement {
   }
 
   _render() {
-    if (!this.shadowRoot || !this._config || !this._range) return;
+    if (!this.shadowRoot || !this._config) return;
     const t = this._t();
+    if (!this._range) {
+      if (this._err) {
+        this.shadowRoot.innerHTML = `<style>${STYLE}</style><ha-card><div class="sel">${esc(t.error)}: ${esc(this._err)}</div></ha-card>`;
+      }
+      return;
+    }
     const title = this._config.title !== undefined ? this._config.title : t.title;
     const seg = ['week', 'month', 'year']
       .map((v) => `<button data-view="${v}" class="${v === this._view ? 'on' : ''}">${esc(t[v])}</button>`)

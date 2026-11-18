@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: 22
       - run: node --check blood-pressure-card.js
+      - run: npm ci
       - run: npm test
 
   hacs:

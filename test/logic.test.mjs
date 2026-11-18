@@ -89,3 +89,34 @@ test('ESH classification', () => {
   assert.equal(classify(150, 101), 'g2');
   assert.equal(classify(181, 90), 'g3');
 });
+
+test('non-numeric text such as "12/80" is not read as 12', () => {
+  const s = parseSeries([{ s: '12/80', lu: T('2026-11-02T08:00:00Z') }], START);
+  assert.equal(s.points.length, 0);
+});
+
+test('implausible readings are dropped', () => {
+  const at = (iso, v) => parseSeries([{ s: String(v), lu: T(iso) }], START);
+  const cases = [
+    [65535, 80],
+    [0, 80],
+    [130, 0],
+    [130, 250],
+    [80, 120], // diastolic above systolic
+  ];
+  for (const [s, d] of cases) {
+    const r = buildReadings(at('2026-11-02T08:00:00Z', s), at('2026-11-02T08:00:05Z', d), null, START, END, 120e3);
+    assert.deepEqual(r, [], `${s}/${d} should be dropped`);
+  }
+  const ok = buildReadings(at('2026-11-02T08:00:00Z', 128), at('2026-11-02T08:00:05Z', 82), null, START, END, 120e3);
+  assert.equal(ok.length, 1);
+});
+
+test('category matches the rounded average that is displayed', () => {
+  // 140 + 139 + 139 + 140 + 140 = 698 / 5 = 139.6, shown as 140.
+  const readings = [140, 139, 139, 140, 140].map((sys, i) => ({ t: START + i * 3600e3, sys, dia: 80, pulse: null }));
+  const [b] = aggregate(readings, [{ s: new Date(START), e: new Date(END) }]);
+  assert.equal(Math.round(b.sysAvg), 140);
+  assert.equal(b.cat, 'g1');
+  assert.equal(summarize(readings).cat, 'g1');
+});

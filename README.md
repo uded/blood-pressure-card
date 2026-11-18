@@ -50,9 +50,11 @@ pulse: sensor.withings_heart_pulse   # optional, shown next to highest/lowest
 | `default_view` | `month` | `week`, `month` or `year` |
 | `height` | `280` | Chart height in viewBox units (width is 700) |
 | `show_stats` | `true` | Show the averages and the highest/lowest lists |
-| `pair_window` | `120` | Seconds within which systolic and diastolic changes count as one reading |
+| `pair_window` | `120` | Seconds (1 to 3600) within which systolic and diastolic changes count as one reading |
 | `language` | HA language | `en` or `pl` |
-| `colors` | ESH palette | Override category colours: `o`, `n`, `hn`, `g1`, `g2`, `g3` |
+| `colors` | ESH palette | Override category colours: `o`, `n`, `hn`, `g1`, `g2`, `g3`. Values are plain CSS colours: `#hex`, `rgb()`, `hsl()`, `var(--name)` or a colour name |
+
+An invalid option (say `pair_window: 2m` or an unknown `default_view`) shows Home Assistant's error card with the reason, instead of a chart with wrong data. `height` must be between 120 and 2000.
 
 For a full-screen panel, put the card in a dashboard view of type **Panel (single card)**.
 
@@ -62,6 +64,9 @@ The card reads the recorder **history** (`history/history_during_period`), not l
 
 - Each change of the systolic or diastolic state counts as a reading. Changes within `pair_window` seconds of each other are paired into one reading. If only one of the two numbers changed (say 135/87 followed by 128/87), the reading takes the current value of the other.
 - A state that just repeats the last numeric value (HA restart, `unavailable` → back) is ignored. The downside is that two identical readings in a row count once. That doesn't change the min/max range but does slightly change the averages.
+- Implausible values are dropped as sensor glitches: systolic outside 50 to 300, diastolic outside 20 to 200, or diastolic not below systolic.
+- A reading that starts just before a period boundary stays in the period it started in.
+- The colour of a day or period comes from its average rounded to whole mmHg, the same number the card shows.
 
 ### History retention
 
