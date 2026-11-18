@@ -1,20 +1,53 @@
 name: Release
 
+# Push a tag vX.Y.Z (matching package.json and VERSION) to publish a release.
+# HACS installs the attached blood-pressure-card.js from the release.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*.*.*']
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  asset:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Stamp version
-        run: sed -i "s/export const VERSION = '.*';/export const VERSION = '${GITHUB_REF_NAME#v}';/" blood-pressure-card.js
-      - name: Upload asset
+      - name: 📥 Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🟢 Set up Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 26
+      - name: 🏷️ Check tag matches package.json and VERSION
+        run: node scripts/check-release.mjs "$GITHUB_REF_NAME"
+      - name: 🔍 Syntax check
+        run: node --check blood-pressure-card.js
+      - name: 📦 Install dev dependencies
+        run: npm ci
+      - name: 🧪 Run tests
+        run: npm test
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🚀 Create release with the card as asset
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" blood-pressure-card.js --clobber
+        # Fails if the release already exists: a published version is never overwritten.
+        run: gh release create "$GITHUB_REF_NAME" blood-pressure-card.js --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
