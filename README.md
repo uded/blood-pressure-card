@@ -84,7 +84,7 @@ recorder:
   purge_keep_days: 30   # or 90, 365… whatever your database can take
 ```
 
-When you open a period older than 10 days that has no readings, the card says the history may have been purged.
+When the recorder has no history at all for a period, not even a value from before it, the card says the history may have been purged. A period that is simply empty, with history around it, just shows "No readings in this period".
 
 ## Categories (ESH 2023)
 

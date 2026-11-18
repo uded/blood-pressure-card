@@ -163,6 +163,30 @@ test('home thresholds colour a 137/86 day as hypertension and say which table is
   assert.equal(ref.length, 2, 'two reference lines');
 });
 
+test('a period the recorder holds no history for says The history may be purged', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const hass = fakeHass({ history: { 'sensor.sys': [], 'sensor.dia': [] } });
+  const el = await mount({ ...BASE, default_view: 'week' }, hass);
+  assert.match(text(el), /The history may be purged/, 'even for the current week: no rows means no history');
+});
+
+test('an old period with history around it but no readings just says no readings', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const lu = (...a) => new Date(...a).getTime() / 1000;
+  // A recorder that keeps a year: one reading in January, none in March.
+  const hass = fakeHass({
+    history: { 'sensor.sys': [{ s: '128', lu: lu(2026, 0, 10, 8) }], 'sensor.dia': [{ s: '82', lu: lu(2026, 0, 10, 8) }] },
+  });
+  const el = await mount(BASE, hass);
+  for (let i = 0; i < 8; i++) {
+    el.shadowRoot.querySelector('[data-nav="-1"]').click();
+    await settle();
+  }
+  assert.match(text(el), /Mar/);
+  assert.match(text(el), /No readings in this period/);
+  assert.doesNotMatch(text(el), /purged/);
+});
+
 for (const pair_window of ['2m', -5, 0, Infinity]) {
   test(`setConfig rejects pair_window ${String(pair_window)}`, async () => {
     const el = document.createElement('blood-pressure-card');

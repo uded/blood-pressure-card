@@ -59,7 +59,7 @@ const I18N = {
     pulse: 'Pulse',
     none: 'No readings in this period',
     noneDay: 'no readings',
-    noneOld: 'No readings — history may be purged. Check recorder purge_keep_days.',
+    noneOld: 'No readings. The history may be purged: check recorder purge_keep_days.',
     loading: 'Loading…',
     error: 'Could not load history',
     notFound: 'Entity not found',
@@ -93,7 +93,7 @@ const I18N = {
     pulse: 'Tętno',
     none: 'Brak pomiarów w tym okresie',
     noneDay: 'brak pomiarów',
-    noneOld: 'Brak pomiarów — historia mogła zostać wyczyszczona. Sprawdź recorder purge_keep_days.',
+    noneOld: 'Brak pomiarów. Historia mogła zostać wyczyszczona: sprawdź recorder purge_keep_days.',
     loading: 'Ładowanie…',
     error: 'Nie udało się pobrać historii',
     notFound: 'Nie znaleziono encji',
@@ -618,6 +618,9 @@ export class BloodPressureCard extends BaseElement {
       this._data = {
         buckets: aggregate(readings, range.buckets, c.thresholds),
         summary: summarize(readings, c.thresholds),
+        // include_start_time_state returns the last earlier state whenever the
+        // recorder still has one, so no rows at all means the history is gone.
+        noHistory: !(res[c.systolic] && res[c.systolic].length),
       };
       this._loading = false;
       this._render();
@@ -770,7 +773,7 @@ export class BloodPressureCard extends BaseElement {
     else if (this._loading && !this._data) overlay = t.loading;
     else if (this._err) overlay = `${t.error}: ${esc(this._err)}`;
     else if (this._data && !withData.length) {
-      overlay = this._range.start.getTime() < now - 10 * DAY ? t.noneOld : t.none;
+      overlay = this._data.noHistory ? t.noneOld : t.none;
     }
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="aspect-ratio:${W}/${H}" role="img" aria-label="${esc(
       this._summary(),
