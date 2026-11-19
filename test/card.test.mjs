@@ -272,6 +272,57 @@ test('axis labels use the font size that fits the card width', async (t) => {
   assert.equal(el.shadowRoot.querySelector('text.ylab').getAttribute('font-size'), '24');
 });
 
+const twoReadings = () => {
+  const lu = (...a) => new Date(...a).getTime() / 1000;
+  return fakeHass({
+    history: {
+      'sensor.sys': [{ s: '128', lu: lu(2026, 10, 15, 8) }, { s: '137', lu: lu(2026, 10, 17, 20) }],
+      'sensor.dia': [{ s: '82', lu: lu(2026, 10, 15, 8, 0, 4) }, { s: '86', lu: lu(2026, 10, 17, 20, 0, 4) }],
+    },
+  });
+};
+
+test('the panel under the chart shows the last reading of the period', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const el = await mount({ ...ROLLING, default_view: 'week' }, twoReadings());
+  const sel = el.shadowRoot.querySelectorAll('.sel');
+  assert.equal(sel.length, 1);
+  assert.match(sel[0].textContent, /Last reading/);
+  assert.match(sel[0].textContent, /137\/86/);
+  assert.match(sel[0].textContent, /Nov 17/);
+});
+
+test('selecting a day replaces the last reading in the same panel, Escape brings it back', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const el = await mount({ ...ROLLING, default_view: 'week' }, twoReadings());
+  el.shadowRoot.querySelector('[data-i="3"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true }));
+  let sel = el.shadowRoot.querySelectorAll('.sel');
+  assert.equal(sel.length, 1, 'one panel, not two');
+  assert.match(sel[0].textContent, /Nov 15/);
+  assert.doesNotMatch(sel[0].textContent, /Last reading/);
+  el.shadowRoot.querySelector('.chart').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+  sel = el.shadowRoot.querySelectorAll('.sel');
+  assert.match(sel[0].textContent, /Last reading/);
+});
+
+test('a day without readings still uses the two-line panel', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const el = await mount({ ...ROLLING, default_view: 'week' }, twoReadings());
+  el.shadowRoot.querySelector('[data-i="0"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true }));
+  const sel = el.shadowRoot.querySelector('.sel');
+  assert.equal(sel.children.length, 2, 'title line and detail line, like a day with readings');
+  assert.match(sel.textContent, /no readings/);
+});
+
+test('show_extremes: false hides the highest and lowest lists but keeps the averages', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const el = await mount({ ...ROLLING, default_view: 'week', show_extremes: false }, twoReadings());
+  assert.doesNotMatch(text(el), /Highest values|Lowest values/);
+  assert.match(text(el), /Systolic average/);
+  const on = await mount({ ...ROLLING, default_view: 'week' }, twoReadings());
+  assert.match(text(on), /Highest values/, 'on by default');
+});
+
 for (const pair_window of ['2m', -5, 0, Infinity]) {
   test(`setConfig rejects pair_window ${String(pair_window)}`, async () => {
     const el = document.createElement('blood-pressure-card');

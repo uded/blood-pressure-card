@@ -10,7 +10,7 @@ A Home Assistant Lovelace card that charts blood pressure the way the Withings a
 
 - Last 7 / 30 / 365 days (or calendar week / month / year) with ‹ › navigation to earlier periods, back to the oldest history your recorder keeps
 - Candles coloured by the ESH 2023 category of that day's average
-- Tap a day to see its range, average and category, or Tab to the chart and use the arrow keys (Home, End, Escape); screen readers announce the selected day
+- Under the chart, the last reading of the period; tap a day to see its range, average and category in the same place, or Tab to the chart and use the arrow keys (Home, End, Escape); screen readers announce the selected day
 - Period averages, plus the highest and lowest readings with their paired value, date and pulse
 - Works with any pair of systolic/diastolic sensors: Withings, the Apple Health sensors from the iOS Companion App, Health Connect, a template sensor…
 - Visual editor with entity pickers; `colors` stays YAML-only
@@ -61,7 +61,8 @@ pulse: sensor.withings_heart_pulse   # optional, shown next to highest/lowest
 | `title` | localized "Blood pressure" | Card title; `""` hides it |
 | `default_view` | `month` | `week`, `month` or `year` |
 | `height` | `280` | Chart height in viewBox units (width is 700) |
-| `show_stats` | `true` | Show the averages and the highest/lowest lists |
+| `show_stats` | `true` | Show the period averages and category |
+| `show_extremes` | `true` | Show the highest and lowest readings (only with `show_stats`) |
 | `range` | `rolling` | `rolling`: the last 7, 30 or 365 days up to today. `calendar`: this week (starting on the first weekday set in your HA profile), this month or this year |
 | `thresholds` | `office` | `office` (ESH office table, hypertension from 140/90) or `home` (ESH home threshold, hypertension from 135/85) |
 | `pair_window` | `120` | Seconds (1 to 3600) within which systolic and diastolic changes count as one reading |

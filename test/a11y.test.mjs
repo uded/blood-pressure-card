@@ -47,7 +47,7 @@ test('arrow keys choose a day, Home and End jump, Escape closes', async (t) => {
   key(el, 'End');
   assert.match(selTitle(el), /18/);
   key(el, 'Escape');
-  assert.equal(el.shadowRoot.querySelector('.sel'), null);
+  assert.match(el.shadowRoot.querySelector('.sel').textContent, /Last reading/, 'back to the last reading');
 });
 
 test('the selected day is announced through a live region', async (t) => {

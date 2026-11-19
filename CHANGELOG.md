@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.7
+
+### New
+
+- **Last reading at a glance.** Under the chart, the card now shows your last measurement of the period: blood pressure, pulse, category and when it was taken. Tapping a day shows that day in the same place, and tapping it again (or Escape) goes back to the last reading.
+- **Highest and lowest values are optional.** Turn them off with **Show highest and lowest readings** in the card editor (or `show_extremes: false` in YAML) for a shorter card. They stay on by default.
+
+### Fixed
+
+- **The card no longer jumps when you tap a day.** The day details used to appear as an extra box that pushed everything below it down, and disappear again on the next tap. They now replace the last reading, so the card keeps its size.
+
 ## 0.2.6
 
 ### New

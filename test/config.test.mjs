@@ -10,6 +10,7 @@ test('defaults are filled in', () => {
   assert.equal(c.pair_window, 120);
   assert.equal(c.height, 280);
   assert.equal(c.show_stats, true);
+  assert.equal(c.show_extremes, true);
 });
 
 test('numeric strings are accepted for pair_window and height', () => {
@@ -29,6 +30,8 @@ test('range defaults to rolling and accepts calendar', () => {
 });
 
 const rejects = [
+  [{ show_stats: 'yes' }, /show_stats/],
+  [{ show_extremes: 1 }, /show_extremes/],
   [{ range: 'fiscal' }, /range/],
   [{ thresholds: 'clinic' }, /thresholds/],
   [{ default_view: 'day' }, /default_view/],

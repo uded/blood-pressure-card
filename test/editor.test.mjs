@@ -88,6 +88,13 @@ test('editor offers office and home thresholds', () => {
   assert.equal(form.data.thresholds, 'office');
 });
 
+test('editor has a switch for the highest and lowest lists', () => {
+  const form = editor().shadowRoot.querySelector('ha-form');
+  const f = form.schema.flatMap((s) => s.schema || [s]).find((s) => s.name === 'show_extremes');
+  assert.deepEqual(f.selector, { boolean: {} });
+  assert.equal(form.data.show_extremes, true);
+});
+
 test('editing a field fires config-changed with the merged config', () => {
   const el = editor();
   let got = null;

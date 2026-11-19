@@ -12,7 +12,7 @@
  * MIT licensed. https://github.com/uded/blood-pressure-card
  */
 
-export const VERSION = '0.2.6';
+export const VERSION = '0.2.7';
 
 const DAY = 86400000;
 const CACHE_SIZE = 12; // periods kept per card; the oldest is dropped first
@@ -60,6 +60,7 @@ const I18N = {
     pulse: 'Pulse',
     none: 'No readings in this period',
     noneDay: 'no readings',
+    last: 'Last reading',
     noneOld: 'No readings. The history may be purged: check recorder purge_keep_days.',
     loading: 'Loading…',
     error: 'Could not load history',
@@ -94,6 +95,7 @@ const I18N = {
     pulse: 'Tętno',
     none: 'Brak pomiarów w tym okresie',
     noneDay: 'brak pomiarów',
+    last: 'Ostatni pomiar',
     noneOld: 'Brak pomiarów. Historia mogła zostać wyczyszczona: sprawdź recorder purge_keep_days.',
     loading: 'Ładowanie…',
     error: 'Nie udało się pobrać historii',
@@ -228,6 +230,7 @@ export function summarize(readings, table = 'office') {
     diaHigh: by('dia', 1),
     sysLow: by('sys', -1),
     diaLow: by('dia', -1),
+    last: readings.reduce((a, r) => (r.t > a.t ? r : a)),
   };
 }
 
@@ -241,6 +244,7 @@ const DEFAULTS = {
   pair_window: 120,
   height: 280,
   show_stats: true,
+  show_extremes: true,
   thresholds: 'office',
   range: 'rolling',
 };
@@ -266,6 +270,9 @@ export function normalizeConfig(config) {
     if (c[key] !== undefined && !ENTITY_ID.test(c[key])) fail(`"${key}" must be an entity id like sensor.name, got ${JSON.stringify(c[key])}`);
   }
   if (c.systolic === c.diastolic) fail('"systolic" and "diastolic" must be different entities');
+  for (const key of ['show_stats', 'show_extremes']) {
+    if (typeof c[key] !== 'boolean') fail(`"${key}" must be true or false, got ${JSON.stringify(c[key])}`);
+  }
 
   if (!RANGES.includes(c.range)) fail(`"range" must be one of ${RANGES.join(', ')}, got ${JSON.stringify(c.range)}`);
   if (!(c.thresholds in THRESHOLDS)) {
@@ -852,12 +859,16 @@ export class BloodPressureCard extends BaseElement {
     return `${this._range.label}: ${t.avg} ${Math.round(s.sysAvg)}/${Math.round(s.diaAvg)} mmHg, ${t.cat[s.cat]}, ${t.meas(s.n)}`;
   }
 
+  /**
+   * The panel under the chart: the selected day, or else the last reading of
+   * the period. Both use the same two lines, so selecting does not resize the card.
+   */
   _selection() {
-    if (this._sel === null || !this._data) return '';
+    if (!this._data) return '';
     const t = this._t();
-    const b = this._data.buckets[this._sel];
-    if (!b) return '';
-    if (!b.n) return `<div class="sel"><b>${esc(b.title)}</b> · ${esc(t.noneDay)}</div>`;
+    const b = this._sel === null ? null : this._data.buckets[this._sel];
+    if (!b) return this._lastReading();
+    if (!b.n) return `<div class="sel"><div><b>${esc(b.title)}</b></div><div class="selrow muted">${esc(t.noneDay)}</div></div>`;
     const r = (a, z) => (a === z ? `${a}` : `${a}–${z}`);
     const dot = `<span class="dot" style="background:${this._colors()[b.cat]}"></span>`;
     return `<div class="sel"><div><b>${esc(b.title)}</b> · ${esc(t.meas(b.n))}</div>
@@ -866,11 +877,7 @@ export class BloodPressureCard extends BaseElement {
       <span class="muted">⌀ ${Math.round(b.sysAvg)}/${Math.round(b.diaAvg)} · ${esc(t.cat[b.cat])}</span></div></div>`;
   }
 
-  _stats() {
-    if (!this._config.show_stats || !this._data || !this._data.summary) return '';
-    const t = this._t();
-    const s = this._data.summary;
-    const col = this._colors();
+  _dateTime(ms) {
     const df = new Intl.DateTimeFormat(this._lang(), {
       day: 'numeric',
       month: 'short',
@@ -878,8 +885,28 @@ export class BloodPressureCard extends BaseElement {
       minute: '2-digit',
       timeZone: this._tz(),
     });
+    return df.format(new Date(ms));
+  }
+
+  _lastReading() {
+    const s = this._data.summary;
+    if (!s) return '';
+    const t = this._t();
+    const r = s.last;
+    const cat = classify(r.sys, r.dia, this._config.thresholds);
+    const pulse = r.pulse !== null && r.pulse !== undefined ? `<span>${esc(t.pulse)} <b>${r.pulse}</b></span>` : '';
+    return `<div class="sel"><div><b>${esc(t.last)}</b> · ${esc(this._dateTime(r.t))}</div>
+      <div class="selrow"><span class="dot" style="background:${this._colors()[cat]}"></span><span><b>${r.sys}/${r.dia}</b> mmHg</span>
+      ${pulse}<span class="muted">${esc(t.cat[cat])}</span></div></div>`;
+  }
+
+  _stats() {
+    if (!this._config.show_stats || !this._data || !this._data.summary) return '';
+    const t = this._t();
+    const s = this._data.summary;
+    const col = this._colors();
     const row = (label, r) =>
-      `<div class="row"><div><div>${esc(label)}</div><div class="muted small">${esc(df.format(new Date(r.t)))}${
+      `<div class="row"><div><div>${esc(label)}</div><div class="muted small">${esc(this._dateTime(r.t))}${
         r.pulse !== null && r.pulse !== undefined ? ` · ${esc(t.pulse)} ${r.pulse}` : ''
       }</div></div><div class="val"><span class="dot" style="background:${col[classify(r.sys, r.dia, this._config.thresholds)]}"></span>${r.sys}/${r.dia} <span class="muted">mmHg</span></div></div>`;
     return `
@@ -887,7 +914,14 @@ export class BloodPressureCard extends BaseElement {
         <div class="tile"><div class="k">${esc(t.sysAvg)}</div><div class="v">${Math.round(s.sysAvg)}<span class="u">mmHg</span></div></div>
         <div class="tile"><div class="k">${esc(t.diaAvg)}</div><div class="v">${Math.round(s.diaAvg)}<span class="u">mmHg</span></div></div>
       </div>
-      <div class="catline"><span class="dot" style="background:${col[s.cat]}"></span>${esc(t.cat[s.cat])} · ${esc(t.meas(s.n))} · ${esc(t.basis[this._config.thresholds])}</div>
+      <div class="catline"><span class="dot" style="background:${col[s.cat]}"></span>${esc(t.cat[s.cat])} · ${esc(t.meas(s.n))} · ${esc(t.basis[this._config.thresholds])}</div>${
+        this._config.show_extremes ? this._extremes(s, row) : ''
+      }`;
+  }
+
+  _extremes(s, row) {
+    const t = this._t();
+    return `
       <div class="sec">${esc(t.highest)}</div>
       <div class="list">${row(t.sys, s.sysHigh)}${row(t.dia, s.diaHigh)}</div>
       <div class="sec">${esc(t.lowest)}</div>
@@ -1015,6 +1049,7 @@ const EDITOR_SCHEMA = [
     ],
   },
   { name: 'show_stats', selector: { boolean: {} } },
+  { name: 'show_extremes', selector: { boolean: {} } },
 ];
 
 const EDITOR_LABELS = {
@@ -1029,7 +1064,8 @@ const EDITOR_LABELS = {
     language: 'Language (default: HA language)',
     pair_window: 'Pairing window',
     height: 'Chart height',
-    show_stats: 'Show averages and highest/lowest readings',
+    show_stats: 'Show averages',
+    show_extremes: 'Show highest and lowest readings',
   },
   pl: {
     systolic: 'Czujnik skurczowego',
@@ -1042,7 +1078,8 @@ const EDITOR_LABELS = {
     language: 'Język (domyślnie język HA)',
     pair_window: 'Okno parowania',
     height: 'Wysokość wykresu',
-    show_stats: 'Pokaż średnie oraz najwyższe i najniższe pomiary',
+    show_stats: 'Pokaż średnie',
+    show_extremes: 'Pokaż najwyższe i najniższe pomiary',
   },
 };
 
