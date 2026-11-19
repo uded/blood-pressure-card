@@ -95,6 +95,14 @@ test('editor has a switch for the highest and lowest lists', () => {
   assert.equal(form.data.show_extremes, true);
 });
 
+test('editor offers last reading or average for the panel, last by default', () => {
+  const form = editor().shadowRoot.querySelector('ha-form');
+  const f = form.schema.flatMap((s) => s.schema || [s]).find((s) => s.name === 'summary');
+  assert.deepEqual(f.selector.select.options.map((o) => o.value), ['last', 'average']);
+  assert.equal(form.data.summary, 'last');
+  assert.equal(form.schema.some((s) => s.name === 'show_stats'), false);
+});
+
 test('editing a field fires config-changed with the merged config', () => {
   const el = editor();
   let got = null;

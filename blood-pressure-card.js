@@ -12,7 +12,7 @@
  * MIT licensed. https://github.com/uded/blood-pressure-card
  */
 
-export const VERSION = '0.2.7';
+export const VERSION = '0.2.8';
 
 const DAY = 86400000;
 const CACHE_SIZE = 12; // periods kept per card; the oldest is dropped first
@@ -51,8 +51,6 @@ const I18N = {
     week: 'Week',
     month: 'Month',
     year: 'Year',
-    sysAvg: 'Systolic average',
-    diaAvg: 'Diastolic average',
     highest: 'Highest values',
     lowest: 'Lowest values',
     sys: 'Systolic',
@@ -61,6 +59,7 @@ const I18N = {
     none: 'No readings in this period',
     noneDay: 'no readings',
     last: 'Last reading',
+    periodAvg: 'Average',
     noneOld: 'No readings. The history may be purged: check recorder purge_keep_days.',
     loading: 'Loading…',
     error: 'Could not load history',
@@ -86,8 +85,6 @@ const I18N = {
     week: 'Tydzień',
     month: 'Miesiąc',
     year: 'Rok',
-    sysAvg: 'Średnie skurczowe',
-    diaAvg: 'Średnie rozkurczowe',
     highest: 'Najwyższe wartości',
     lowest: 'Najniższe wartości',
     sys: 'Skurczowe',
@@ -96,6 +93,7 @@ const I18N = {
     none: 'Brak pomiarów w tym okresie',
     noneDay: 'brak pomiarów',
     last: 'Ostatni pomiar',
+    periodAvg: 'Średnia',
     noneOld: 'Brak pomiarów. Historia mogła zostać wyczyszczona: sprawdź recorder purge_keep_days.',
     loading: 'Ładowanie…',
     error: 'Nie udało się pobrać historii',
@@ -243,12 +241,13 @@ const DEFAULTS = {
   default_view: 'month',
   pair_window: 120,
   height: 280,
-  show_stats: true,
+  summary: 'last',
   show_extremes: true,
   thresholds: 'office',
   range: 'rolling',
 };
 const RANGES = ['rolling', 'calendar'];
+const SUMMARIES = ['last', 'average'];
 
 /**
  * Validate a card config and fill in defaults. Throws a readable error, which
@@ -260,6 +259,8 @@ export function normalizeConfig(config) {
   };
   if (!config || !config.systolic || !config.diastolic) fail('"systolic" and "diastolic" are required');
   const c = { ...DEFAULTS, ...config };
+  // show_stats (before 0.2.8) is replaced by summary; old configs still load.
+  delete c.show_stats;
   const pw = Number(c.pair_window);
   if (typeof c.pair_window === 'boolean' || !Number.isFinite(pw) || pw <= 0 || pw > 3600) {
     fail(`"pair_window" must be a number of seconds between 1 and 3600, got ${JSON.stringify(c.pair_window)}`);
@@ -270,9 +271,8 @@ export function normalizeConfig(config) {
     if (c[key] !== undefined && !ENTITY_ID.test(c[key])) fail(`"${key}" must be an entity id like sensor.name, got ${JSON.stringify(c[key])}`);
   }
   if (c.systolic === c.diastolic) fail('"systolic" and "diastolic" must be different entities');
-  for (const key of ['show_stats', 'show_extremes']) {
-    if (typeof c[key] !== 'boolean') fail(`"${key}" must be true or false, got ${JSON.stringify(c[key])}`);
-  }
+  if (typeof c.show_extremes !== 'boolean') fail(`"show_extremes" must be true or false, got ${JSON.stringify(c.show_extremes)}`);
+  if (!SUMMARIES.includes(c.summary)) fail(`"summary" must be one of ${SUMMARIES.join(', ')}, got ${JSON.stringify(c.summary)}`);
 
   if (!RANGES.includes(c.range)) fail(`"range" must be one of ${RANGES.join(', ')}, got ${JSON.stringify(c.range)}`);
   if (!(c.thresholds in THRESHOLDS)) {
@@ -580,7 +580,7 @@ export class BloodPressureCard extends BaseElement {
   }
 
   getCardSize() {
-    return this._config && this._config.show_stats ? 9 : 5;
+    return this._config && this._config.show_extremes ? 8 : 5;
   }
 
   getGridOptions() {
@@ -860,14 +860,15 @@ export class BloodPressureCard extends BaseElement {
   }
 
   /**
-   * The panel under the chart: the selected day, or else the last reading of
-   * the period. Both use the same two lines, so selecting does not resize the card.
+   * The panel under the chart: the selected day, or else the period summary
+   * (last reading or average). All use the same two lines, so selecting does
+   * not resize the card.
    */
   _selection() {
     if (!this._data) return '';
     const t = this._t();
     const b = this._sel === null ? null : this._data.buckets[this._sel];
-    if (!b) return this._lastReading();
+    if (!b) return this._config.summary === 'average' ? this._average() : this._lastReading();
     if (!b.n) return `<div class="sel"><div><b>${esc(b.title)}</b></div><div class="selrow muted">${esc(t.noneDay)}</div></div>`;
     const r = (a, z) => (a === z ? `${a}` : `${a}–${z}`);
     const dot = `<span class="dot" style="background:${this._colors()[b.cat]}"></span>`;
@@ -900,8 +901,17 @@ export class BloodPressureCard extends BaseElement {
       ${pulse}<span class="muted">${esc(t.cat[cat])}</span></div></div>`;
   }
 
+  _average() {
+    const s = this._data.summary;
+    if (!s) return '';
+    const t = this._t();
+    return `<div class="sel"><div><b>${esc(t.periodAvg)}</b> · ${esc(t.meas(s.n))}</div>
+      <div class="selrow"><span class="dot" style="background:${this._colors()[s.cat]}"></span><span><b>${Math.round(s.sysAvg)}/${Math.round(s.diaAvg)}</b> mmHg</span>
+      <span class="muted">${esc(t.cat[s.cat])} · ${esc(t.basis[this._config.thresholds])}</span></div></div>`;
+  }
+
   _stats() {
-    if (!this._config.show_stats || !this._data || !this._data.summary) return '';
+    if (!this._config.show_extremes || !this._data || !this._data.summary) return '';
     const t = this._t();
     const s = this._data.summary;
     const col = this._colors();
@@ -909,18 +919,6 @@ export class BloodPressureCard extends BaseElement {
       `<div class="row"><div><div>${esc(label)}</div><div class="muted small">${esc(this._dateTime(r.t))}${
         r.pulse !== null && r.pulse !== undefined ? ` · ${esc(t.pulse)} ${r.pulse}` : ''
       }</div></div><div class="val"><span class="dot" style="background:${col[classify(r.sys, r.dia, this._config.thresholds)]}"></span>${r.sys}/${r.dia} <span class="muted">mmHg</span></div></div>`;
-    return `
-      <div class="tiles">
-        <div class="tile"><div class="k">${esc(t.sysAvg)}</div><div class="v">${Math.round(s.sysAvg)}<span class="u">mmHg</span></div></div>
-        <div class="tile"><div class="k">${esc(t.diaAvg)}</div><div class="v">${Math.round(s.diaAvg)}<span class="u">mmHg</span></div></div>
-      </div>
-      <div class="catline"><span class="dot" style="background:${col[s.cat]}"></span>${esc(t.cat[s.cat])} · ${esc(t.meas(s.n))} · ${esc(t.basis[this._config.thresholds])}</div>${
-        this._config.show_extremes ? this._extremes(s, row) : ''
-      }`;
-  }
-
-  _extremes(s, row) {
-    const t = this._t();
     return `
       <div class="sec">${esc(t.highest)}</div>
       <div class="list">${row(t.sys, s.sysHigh)}${row(t.dia, s.diaHigh)}</div>
@@ -1048,7 +1046,18 @@ const EDITOR_SCHEMA = [
       { name: 'height', selector: { number: { min: 120, max: 2000, mode: 'box' } } },
     ],
   },
-  { name: 'show_stats', selector: { boolean: {} } },
+  {
+    name: 'summary',
+    selector: {
+      select: {
+        mode: 'list',
+        options: [
+          { value: 'last', label: 'Last reading' },
+          { value: 'average', label: 'Average of the period' },
+        ],
+      },
+    },
+  },
   { name: 'show_extremes', selector: { boolean: {} } },
 ];
 
@@ -1064,7 +1073,7 @@ const EDITOR_LABELS = {
     language: 'Language (default: HA language)',
     pair_window: 'Pairing window',
     height: 'Chart height',
-    show_stats: 'Show averages',
+    summary: 'Under the chart',
     show_extremes: 'Show highest and lowest readings',
   },
   pl: {
@@ -1078,7 +1087,7 @@ const EDITOR_LABELS = {
     language: 'Język (domyślnie język HA)',
     pair_window: 'Okno parowania',
     height: 'Wysokość wykresu',
-    show_stats: 'Pokaż średnie',
+    summary: 'Pod wykresem',
     show_extremes: 'Pokaż najwyższe i najniższe pomiary',
   },
 };
@@ -1156,12 +1165,6 @@ const STYLE = `
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:middle; }
   .muted { color:var(--secondary-text-color); }
   .small { font-size:.82em; }
-  .tiles { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--divider-color); border-radius:12px; overflow:hidden; margin-top:14px; }
-  .tile { background:var(--secondary-background-color); padding:12px 14px; }
-  .tile .k { color:var(--secondary-text-color); font-size:.85em; }
-  .tile .v { font-size:2em; font-weight:600; line-height:1.25; }
-  .tile .u { font-size:.45em; font-weight:400; color:var(--secondary-text-color); margin-left:4px; }
-  .catline { margin-top:8px; font-size:.9em; color:var(--secondary-text-color); }
   .sec { margin-top:14px; font-weight:500; }
   .list { background:var(--secondary-background-color); border-radius:12px; margin-top:6px; }
   .row { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; border-bottom:1px solid var(--divider-color); }

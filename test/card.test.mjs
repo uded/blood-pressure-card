@@ -156,7 +156,7 @@ test('home thresholds colour a 137/86 day as hypertension and say which table is
   const hass = fakeHass({
     history: { 'sensor.sys': [{ s: '137', lu: lu(2026, 10, 17, 8) }], 'sensor.dia': [{ s: '86', lu: lu(2026, 10, 17, 8, 0, 4) }] },
   });
-  const el = await mount({ ...BASE, thresholds: 'home' }, hass);
+  const el = await mount({ ...BASE, thresholds: 'home', summary: 'average' }, hass);
   assert.match(text(el), /Hypertension grade 1/);
   assert.match(text(el), /home/i);
   const ref = [...el.shadowRoot.querySelectorAll('line.ref')];
@@ -314,13 +314,35 @@ test('a day without readings still uses the two-line panel', async (t) => {
   assert.match(sel.textContent, /no readings/);
 });
 
-test('show_extremes: false hides the highest and lowest lists but keeps the averages', async (t) => {
+test('show_extremes: false hides the highest and lowest lists but keeps the panel', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
   const el = await mount({ ...ROLLING, default_view: 'week', show_extremes: false }, twoReadings());
   assert.doesNotMatch(text(el), /Highest values|Lowest values/);
-  assert.match(text(el), /Systolic average/);
+  assert.match(el.shadowRoot.querySelector('.sel').textContent, /Last reading/);
   const on = await mount({ ...ROLLING, default_view: 'week' }, twoReadings());
   assert.match(text(on), /Highest values/, 'on by default');
+});
+
+test('summary: average shows the period average in the panel, not the last reading', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  const el = await mount({ ...ROLLING, default_view: 'week', summary: 'average' }, twoReadings());
+  const sel = () => el.shadowRoot.querySelector('.sel');
+  assert.match(sel().textContent, /Average · 2 readings/);
+  assert.doesNotMatch(sel().textContent, /Last reading/);
+  assert.equal(sel().children.length, 2, 'same two lines as a selected day');
+  el.shadowRoot.querySelector('[data-i="3"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true, composed: true }));
+  assert.equal(el.shadowRoot.querySelectorAll('.sel').length, 1, 'the day replaces the average');
+  assert.doesNotMatch(sel().textContent, /Average/);
+  el.shadowRoot.querySelector('.chart').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+  assert.match(sel().textContent, /Average/);
+});
+
+test('the highest and lowest lists do not depend on the panel choice', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
+  for (const summary of ['last', 'average']) {
+    const el = await mount({ ...ROLLING, default_view: 'week', summary }, twoReadings());
+    assert.match(text(el), /Highest values/, summary);
+  }
 });
 
 for (const pair_window of ['2m', -5, 0, Infinity]) {

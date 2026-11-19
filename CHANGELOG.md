@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.8
+
+### New
+
+- **Last reading or average, your choice.** The panel under the chart now shows either your last measurement or the average of the period. Pick it with **Under the chart** in the card editor (or `summary: last` / `summary: average` in YAML). Tapping a day shows that day in the same place, so the card keeps its size either way. Last reading is the default.
+
+### Changed
+
+- **No more average tiles.** The two large average boxes are gone; with **Average** chosen, the average sits in the panel under the chart instead. The old **Show averages** switch (`show_stats`) is replaced by the choice above, and an old `show_stats` in YAML is ignored.
+
+### Fixed
+
+- **Highest and lowest values stay when averages are off.** Turning off the averages used to hide the highest and lowest readings as well. **Show highest and lowest readings** now works on its own.
+
 ## 0.2.7
 
 ### New

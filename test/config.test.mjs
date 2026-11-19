@@ -9,7 +9,7 @@ test('defaults are filled in', () => {
   assert.equal(c.default_view, 'month');
   assert.equal(c.pair_window, 120);
   assert.equal(c.height, 280);
-  assert.equal(c.show_stats, true);
+  assert.equal(c.summary, 'last');
   assert.equal(c.show_extremes, true);
 });
 
@@ -29,8 +29,14 @@ test('range defaults to rolling and accepts calendar', () => {
   assert.equal(normalizeConfig({ ...BASE, range: 'calendar' }).range, 'calendar');
 });
 
+test('an old show_stats setting still loads and is dropped', () => {
+  const c = normalizeConfig({ ...BASE, show_stats: false });
+  assert.equal('show_stats' in c, false);
+  assert.equal(normalizeConfig({ ...BASE, summary: 'average' }).summary, 'average');
+});
+
 const rejects = [
-  [{ show_stats: 'yes' }, /show_stats/],
+  [{ summary: 'both' }, /summary/],
   [{ show_extremes: 1 }, /show_extremes/],
   [{ range: 'fiscal' }, /range/],
   [{ thresholds: 'clinic' }, /thresholds/],

@@ -118,7 +118,7 @@ for (const [mode, bg] of [['light', '#FFFFFF'], ['dark', '#1C1C1C']]) {
 
 test('a light theme uses the light palette, a dark theme the dark one', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date(2026, 10, 18, 12) });
-  const dotColour = (el) => el.shadowRoot.querySelector('.catline .dot').style.background.toUpperCase();
+  const dotColour = (el) => el.shadowRoot.querySelector('.sel .dot').style.background.toUpperCase();
   const light = await mount(BASE, withReadings({ darkMode: false }));
   const dark = await mount(BASE, withReadings({ darkMode: true }));
   const hex = (c) => c.toUpperCase();
