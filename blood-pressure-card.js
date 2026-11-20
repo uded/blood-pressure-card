@@ -12,7 +12,7 @@
  * MIT licensed. https://github.com/uded/blood-pressure-card
  */
 
-export const VERSION = '0.2.8';
+export const VERSION = '0.2.9';
 
 const DAY = 86400000;
 const CACHE_SIZE = 12; // periods kept per card; the oldest is dropped first
