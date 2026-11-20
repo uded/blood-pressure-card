@@ -21,10 +21,14 @@ A Home Assistant Lovelace card that charts blood pressure the way the Withings a
 
 ## Install
 
-### HACS (custom repository)
+### HACS
 
-1. HACS → ⋮ → **Custom repositories** → add `https://github.com/uded/blood-pressure-card`, type **Dashboard**.
-2. Install **Blood Pressure Card** and reload the browser.
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=uded&repository=blood-pressure-card&category=plugin)
+
+1. Open HACS and search for **Blood Pressure Card**, or use the button above.
+2. Install it and reload the browser.
+
+If the search does not find it (an older HACS, or before the store has refreshed), add it as a custom repository first: HACS → ⋮ → **Custom repositories** → add `https://github.com/uded/blood-pressure-card`, type **Dashboard**.
 
 ### Manual
 

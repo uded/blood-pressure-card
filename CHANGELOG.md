@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Find it in HACS.** The card is now in the HACS default store: search for **Blood Pressure Card** in HACS, no custom repository needed. The README install steps lead with that.
+
 ## 0.2.8
 
 ### New
